@@ -1,4 +1,6 @@
 /* eslint-disable no-unused-vars */
+const APP_VERSION = "0.7";
+const APP_BUILD = process.env.REACT_APP_BUILD_TIME || "dev";
 import React, { useState, useMemo } from "react";
 import {
   Plus, Trash2, Flag, ArrowLeft, AlertTriangle, ShieldCheck, EyeOff, UserPlus, X,
@@ -532,7 +534,7 @@ export default function App() {
           <div style={{ width: 38, height: 38, borderRadius: 10, background: T.green, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.brass}` }}><Layers size={18} color={T.brass} /></div>
           <div>
             <div style={{ fontSize: 17, fontWeight: 600 }}>Akce S&W</div>
-            <div style={{ fontSize: 12, color: T.textDim }}>Dashboard · rozpočet · vybavení · report · schválení</div>
+            <div style={{ fontSize: 12, color: T.textDim }}>Dashboard · rozpočet · vybavení · report · schválení <span style={{ color: T.brass, opacity: .6, fontSize: 11 }}>· v0.7 · 2026-06-10 22:20</span></div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -787,7 +789,7 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
 function EditCampaignModal({ c, onClose, onSave }) {
   const [info, setInfo] = useState({
     name:         c.name         || "",
-    date:         c.date         || "",
+    date:         c.date ? c.date.slice(0,10) : "",
     place:        c.place        || "",
     capacity:     c.capacity     || 12,
     activityType: c.activityType || "golf",
@@ -821,7 +823,7 @@ function EditCampaignModal({ c, onClose, onSave }) {
         <div style={{ fontSize: 12, color: T.brass, fontWeight: 600, letterSpacing: 0.4, marginBottom: 10, textTransform: "uppercase" }}>Základní údaje</div>
         <FRow label="Název akce *"><input style={inputStyle} value={info.name} onChange={e => setInfo({...info, name: e.target.value})} /></FRow>
         <div style={{ display: "flex", gap: 12 }}>
-          <FRow label="Datum *"><input type="date" style={inputStyle} value={info.date} onChange={e => setInfo({...info, date: e.target.value})} /></FRow>
+          <FRow label="Datum *"><input type="date" style={{...inputStyle, colorScheme: "dark"}} value={info.date} onChange={e => setInfo({...info, date: e.target.value})} /></FRow>
           <FRow label="Max. míst"><input type="number" min={1} style={inputStyle} value={info.capacity} onChange={e => setInfo({...info, capacity: +e.target.value})} /></FRow>
         </div>
         <FRow label="Místo"><input style={inputStyle} value={info.place} onChange={e => setInfo({...info, place: e.target.value})} /></FRow>
@@ -1057,7 +1059,7 @@ function CreateWizard({ onClose, onCreate }) {
         <>
           <FRow label="Název akce"><input style={inputStyle} value={info.name} onChange={(e) => setInfo({ ...info, name: e.target.value })} placeholder="Golfový den" /></FRow>
           <div style={{ display: "flex", gap: 12 }}>
-            <FRow label="Datum"><input type="date" style={inputStyle} value={info.date} onChange={(e) => setInfo({ ...info, date: e.target.value })} /></FRow>
+            <FRow label="Datum"><input type="date" style={{...inputStyle, colorScheme: "dark"}} value={info.date} onChange={(e) => setInfo({ ...info, date: e.target.value })} /></FRow>
             <FRow label="Max. míst"><input type="number" min={1} max={999} style={{ ...inputStyle, maxWidth: 100 }} value={info.capacity} onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) setInfo({ ...info, capacity: v }); }} /></FRow>
           </div>
           <FRow label="Místo"><input style={inputStyle} value={info.place} onChange={(e) => setInfo({ ...info, place: e.target.value })} placeholder="Golf Resort Karlštejn" /></FRow>
