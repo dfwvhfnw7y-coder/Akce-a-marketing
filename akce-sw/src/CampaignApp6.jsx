@@ -1,6 +1,4 @@
 /* eslint-disable no-unused-vars */
-const APP_VERSION = "0.7";
-const APP_BUILD = process.env.REACT_APP_BUILD_TIME || "dev";
 import React, { useState, useMemo } from "react";
 import {
   Plus, Trash2, Flag, ArrowLeft, AlertTriangle, ShieldCheck, EyeOff, UserPlus, X,
@@ -14,6 +12,9 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
+
+const APP_VERSION = "0.7";
+const APP_BUILD = process.env.REACT_APP_BUILD_TIME || "dev";
 
 /* ── tokeny ── */
 const T = {
