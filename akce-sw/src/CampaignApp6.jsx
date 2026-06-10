@@ -14,7 +14,7 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.7";
-const APP_BUILD = process.env.REACT_APP_BUILD_TIME || "dev";
+const APP_BUILD = "2026-06-10 22:56";
 
 /* ── tokeny ── */
 const T = {
@@ -334,7 +334,7 @@ function Btn({ children, onClick, kind = "ghost", icon: Icon, small, disabled })
 const inputStyle = {
   width: "100%", boxSizing: "border-box", padding: "9px 11px", background: T.bg,
   border: `1px solid ${T.line}`, borderRadius: 8, color: T.text, fontSize: 14,
-  fontFamily: "inherit", outline: "none",
+  fontFamily: "inherit", outline: "none", colorScheme: "dark",
 };
 const lbl = { fontSize: 12, color: T.textDim, marginBottom: 4, display: "block", letterSpacing: 0.3 };
 
