@@ -14,7 +14,7 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.7";
-const APP_BUILD = "2026-06-10 22:56";
+const APP_BUILD = "2026-06-10 23:04";
 
 /* ── tokeny ── */
 const T = {
@@ -535,7 +535,7 @@ export default function App() {
           <div style={{ width: 38, height: 38, borderRadius: 10, background: T.green, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.brass}` }}><Layers size={18} color={T.brass} /></div>
           <div>
             <div style={{ fontSize: 17, fontWeight: 600 }}>Akce S&W</div>
-            <div style={{ fontSize: 12, color: T.textDim }}>Dashboard · rozpočet · vybavení · report · schválení <span style={{ color: T.brass, opacity: .6, fontSize: 11 }}>· v0.7 · 2026-06-10 22:20</span></div>
+            <div style={{ fontSize: 12, color: T.textDim }}>Dashboard · rozpočet · vybavení · report · schválení <span style={{ color: T.brass, opacity: .6, fontSize: 11 }}>· v{APP_VERSION} · {APP_BUILD}</span></div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
