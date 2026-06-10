@@ -14,7 +14,7 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.7";
-const APP_BUILD = "2026-06-10 23:10";
+const APP_BUILD = "2026-06-10 23:14";
 
 /* ── tokeny ── */
 const T = {
