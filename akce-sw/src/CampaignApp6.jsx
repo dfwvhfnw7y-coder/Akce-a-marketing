@@ -54,6 +54,7 @@ const ROLES_META = [
 ];
 
 const USERS_SEED = [
+  { id: "u0", name: "Stanislav Admin",  email: "admin@sw-automobily.cz",      phone: "+420 602 100 000", role: "admin",    position: "Správce systému",            dept: "Management",              active: true,  approverId: null     },
   { id: "u1", name: "Miroslav Šperl",  email: "m.sperl@sw-automobily.cz",   phone: "+420 602 100 001", role: "approver", position: "Vedoucí prodeje osobních a užitkových vozů", active: true,  approverId: "mira"   },
   { id: "u2", name: "Tereza Machová",  email: "t.machova@sw-automobily.cz", phone: "+420 602 100 002", role: "approver", position: "Marketing manager",  active: true,  approverId: "tereza" },
   { id: "u3", name: "Matej Bugár",     email: "m.bugar@sw-automobily.cz",   phone: "+420 602 100 003", role: "approver", position: "Vedoucí prodeje nákladních vozidel", active: true,  approverId: "matej"  },
@@ -1057,7 +1058,7 @@ function CreateWizard({ onClose, onCreate }) {
           <FRow label="Název akce"><input style={inputStyle} value={info.name} onChange={(e) => setInfo({ ...info, name: e.target.value })} placeholder="Golfový den" /></FRow>
           <div style={{ display: "flex", gap: 12 }}>
             <FRow label="Datum"><input type="date" style={inputStyle} value={info.date} onChange={(e) => setInfo({ ...info, date: e.target.value })} /></FRow>
-            <FRow label="Max. míst"><input type="number" min={1} style={inputStyle} value={info.capacity} onChange={(e) => setInfo({ ...info, capacity: +e.target.value })} /></FRow>
+            <FRow label="Max. míst"><input type="number" min={1} max={999} style={{ ...inputStyle, maxWidth: 100 }} value={info.capacity} onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v > 0) setInfo({ ...info, capacity: v }); }} /></FRow>
           </div>
           <FRow label="Místo"><input style={inputStyle} value={info.place} onChange={(e) => setInfo({ ...info, place: e.target.value })} placeholder="Golf Resort Karlštejn" /></FRow>
           <div style={{ display: "flex", gap: 12 }}>
@@ -1209,7 +1210,7 @@ function CreateWizard({ onClose, onCreate }) {
           {/* participace zákazníka */}
           <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.line}` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 600, color: T.cream }}>Participace zákazníka</div>
+              <div style={{ fontSize: 13.5, fontWeight: 600, color: T.brass }}>💰 Participace zákazníka</div>
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer", color: participation.enabled ? T.brass : T.textDim }}>
                 <input type="checkbox" checked={participation.enabled} onChange={(e) => setParticipation({ ...participation, enabled: e.target.checked })} />
                 Zákazník přispívá na náklady
@@ -1279,17 +1280,29 @@ function CreateWizard({ onClose, onCreate }) {
           <div style={{ fontSize: 13.5, fontWeight: 600, color: T.cream, marginBottom: 8 }}>Automatické připomínky zákazníkovi</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 10 }}>
             {[
-              { key: "r0",   label: "✉️ Potvrzení účasti — ihned po schválení" },
-              { key: "r14",  label: "⛳ HCP výzva — 14 dní před akcí", golf: true },
-              { key: "r7",   label: "📍 Připomínka s navigací — 7 dní před akcí" },
-              { key: "r1",   label: "⏰ Finální připomínka — 1 den před akcí" },
-              { key: "rAfter1", label: "📋 Dotazník spokojenosti — den po akci" },
+              { key: "r0",      label: "✉️ Potvrzení účasti",        suffix: "ihned po schválení",  daysKey: null },
+              { key: "r14",     label: "⛳ HCP výzva",                daysKey: "r14days", defaultDays: 14, golf: true },
+              { key: "r7",      label: "📍 Připomínka s navigací",   daysKey: "r7days",  defaultDays: 7  },
+              { key: "r1",      label: "⏰ Finální připomínka",       daysKey: "r1days",  defaultDays: 1  },
+              { key: "rAfter1", label: "📋 Dotazník spokojenosti",   suffix: "den po akci",          daysKey: null },
             ].map((r) => (
               (!r.golf || isGolf) && (
-                <label key={r.key} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", background: reminders[r.key] ? `${T.greenLite}10` : T.bg, border: `1px solid ${reminders[r.key] ? T.greenLite : T.line}`, borderRadius: 8, cursor: "pointer", fontSize: 13 }}>
-                  <input type="checkbox" checked={reminders[r.key]} onChange={() => toggleReminder(r.key)} />
-                  <span style={{ color: reminders[r.key] ? T.cream : T.textDim }}>{r.label}</span>
-                </label>
+                <div key={r.key} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", background: reminders[r.key] ? `${T.greenLite}10` : T.bg, border: `1px solid ${reminders[r.key] ? T.greenLite : T.line}`, borderRadius: 8 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 7, flex: 1, cursor: "pointer", fontSize: 13 }}>
+                    <input type="checkbox" checked={!!reminders[r.key]} onChange={() => toggleReminder(r.key)} />
+                    <span style={{ color: reminders[r.key] ? T.cream : T.textDim }}>{r.label}</span>
+                  </label>
+                  {r.daysKey ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                      <input type="number" min={1} max={365} value={reminders[r.daysKey] ?? r.defaultDays}
+                        onChange={(e) => setReminders(prev => ({...prev, [r.daysKey]: +e.target.value}))}
+                        style={{ ...inputStyle, width: 55, padding: "3px 6px", fontSize: 12, textAlign: "center" }} />
+                      <span style={{ fontSize: 11.5, color: T.textDim, whiteSpace: "nowrap" }}>dní před</span>
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 11.5, color: T.textDim, flexShrink: 0 }}>{r.suffix}</span>
+                  )}
+                </div>
               )
             ))}
           </div>
@@ -1441,7 +1454,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <Btn kind="ghost" icon={ArrowLeft} onClick={onBack} small>Zpět</Btn>
             {(role === "admin") && <Btn kind="ghost" icon={Edit2} small onClick={() => setEditingCampaign(true)}>Upravit akci</Btn>}
-            <a href={"https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + encodeURIComponent(c.name) + "&dates=" + (c.date||"").replace(/-/g,"") + "T080000Z/" + (c.date||"").replace(/-/g,"") + "T180000Z&location=" + encodeURIComponent(c.place||"")} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, color: T.textDim, fontSize: 12, textDecoration: "none" }}>📅 Přidat do kalendáře</a>
+            <a href={"https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + encodeURIComponent(c.name) + "&dates=" + (c.date||"").replace(/-/g,"") + "T080000Z/" + (c.date||"").replace(/-/g,"") + "T180000Z&location=" + encodeURIComponent(c.place||"")} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: `${T.brass}15`, border: `1px solid ${T.brass}55`, borderRadius: 8, color: T.brass, fontSize: 12, textDecoration: "none", fontWeight: 500 }}>📅 Přidat do kalendáře</a>
           </div>
           <h2 style={{ margin: "0 0 2px", fontSize: 19, fontWeight: 600 }}>{c.name}</h2>
           <div style={{ fontSize: 12.5, color: T.textDim }}>
@@ -1555,6 +1568,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
       <div style={{ display: "flex", gap: 9, marginBottom: 14, flexWrap: "wrap" }}>
         <Btn kind={full ? "ghost" : "green"} icon={UserPlus} onClick={onAddOpen}>Přidat zákazníka</Btn>
         {canEdit && <Btn kind="ghost" icon={Download} onClick={() => exportCsv(c)}>Export CSV</Btn>}
+        {canEdit && <Btn kind="ghost" icon={Download} onClick={() => exportExcel(c)}>Export Excel</Btn>}
         {canApprove && <Btn kind="ghost" icon={Bell} onClick={() => alert("[Mock] Stav obsazenosti rozeslán prodejcům.")}><Users size={14} /> Stav prodejcům</Btn>}
         {canApprove && inviteMode === "batch" && (() => {
           const cnt = c.parts.filter((p) => p.state === "schvaleno").length;
@@ -2210,9 +2224,11 @@ function TeamTab({ c, canEdit, onUpdate }) {
   const [adding, setAdding] = useState(false);
   const team = c.team || { members: [], teamsUrl: "", multiDay: false };
 
-  const addMember = (m) => onUpdate((camp) => ({
-    ...camp, team: { ...camp.team, members: [...(camp.team?.members || []), { id: uid(), status: "pending", ...m }] }
-  }));
+  const addMember = (m) => onUpdate((camp) => {
+    const existing = (camp.team?.members || []).some(x => x.userId && x.userId === m.userId);
+    if (existing) { alert(`${m.name} je již v týmu akce.`); return camp; }
+    return { ...camp, team: { ...camp.team, members: [...(camp.team?.members || []), { id: uid(), status: "pending", ...m }] } };
+  });
   const updMember = (id, patch) => onUpdate((camp) => ({
     ...camp, team: { ...camp.team, members: camp.team.members.map((m) => m.id === id ? { ...m, ...patch } : m) }
   }));
@@ -2372,6 +2388,8 @@ function TeamTab({ c, canEdit, onUpdate }) {
 function AddTeamMemberModal({ c, onClose, onAdd }) {
   const [type,     setType]     = useState("internal");
   const [userId,   setUserId]   = useState(USERS_SEED[0]?.id || "");
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [selectedUsers, setSelectedUsers] = useState([]);
   const [extName,  setExtName]  = useState("");
   const [extEmail, setExtEmail] = useState("");
   const [role,     setRole]     = useState("Prodejce");
@@ -2414,11 +2432,27 @@ function AddTeamMemberModal({ c, onClose, onAdd }) {
 
       {type === "internal" ? (
         <FRow label="Člen týmu">
-          <select value={userId} onChange={(e) => setUserId(e.target.value)} style={inputStyle}>
-            {USERS_SEED.filter((u) => u.active !== false).map((u) => (
-              <option key={u.id} value={u.id}>{u.name} — {u.position}</option>
-            ))}
-          </select>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, cursor: "pointer", marginBottom: 8, color: multiSelect ? T.brass : T.textDim }}>
+            <input type="checkbox" checked={multiSelect} onChange={e => { setMultiSelect(e.target.checked); setSelectedUsers([]); }} />
+            Vybrat více členů najednou
+          </label>
+          {multiSelect ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 200, overflowY: "auto", background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, padding: 10 }}>
+              {USERS_SEED.filter(u => u.active !== false).map(u => (
+                <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 13, padding: "4px 6px", borderRadius: 6, background: selectedUsers.includes(u.id) ? `${T.brass}15` : "transparent" }}>
+                  <input type="checkbox" checked={selectedUsers.includes(u.id)} onChange={e => setSelectedUsers(prev => e.target.checked ? [...prev, u.id] : prev.filter(x => x !== u.id))} />
+                  <span style={{ color: selectedUsers.includes(u.id) ? T.cream : T.textDim }}>{u.name}</span>
+                  <span style={{ fontSize: 11, color: T.textDim, marginLeft: "auto" }}>{u.position}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <select value={userId} onChange={(e) => setUserId(e.target.value)} style={inputStyle}>
+              {USERS_SEED.filter((u) => u.active !== false).map((u) => (
+                <option key={u.id} value={u.id}>{u.name} — {u.position}</option>
+              ))}
+            </select>
+          )}
         </FRow>
       ) : (
         <div style={{ display: "flex", gap: 10 }}>
@@ -2461,7 +2495,16 @@ function AddTeamMemberModal({ c, onClose, onAdd }) {
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
         <Btn kind="ghost" onClick={onClose}>Zrušit</Btn>
-        <Btn kind="green" icon={Check} disabled={!ok} onClick={() => onAdd({ type, userId: type === "internal" ? userId : null, name, email, role, days, timeFrom, timeTo, note })}>Přidat do týmu</Btn>
+        <Btn kind="green" icon={Check} disabled={!ok && !(multiSelect && selectedUsers.length > 0)} onClick={() => {
+          if (multiSelect && selectedUsers.length > 0) {
+            selectedUsers.forEach(uid2 => {
+              const u = USERS_SEED.find(x => x.id === uid2);
+              if (u) onAdd({ type: "internal", userId: uid2, name: u.name, email: u.email || "", role, days, timeFrom, timeTo, note });
+            });
+          } else {
+            onAdd({ type, userId: type === "internal" ? userId : null, name, email, role, days, timeFrom, timeTo, note });
+          }
+        }}>Přidat do týmu</Btn>
       </div>
     </Modal>
   );
@@ -3276,7 +3319,9 @@ function ReportTab({ c }) {
     <div>
       <style>{`@media print { .no-print { display: none !important; } }`}</style>
       <div className="no-print" style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
-        <Btn kind="ghost" icon={Printer} onClick={() => window.print()}>Tisk / PDF</Btn>
+        <Btn kind="ghost" icon={Download} onClick={() => exportBudgetExcel(c)}>Export Excel</Btn>
+      <Btn kind="ghost" icon={Printer} onClick={() => exportBudgetPdf(c)}>PDF s grafem 🥧</Btn>
+      <Btn kind="ghost" icon={Printer} onClick={() => window.print()}>Tisk / PDF</Btn>
         <Btn kind="ghost" icon={Download} onClick={() => {
           const w = window.open("", "_blank");
           const isGolf = c.activityType === "golf";
@@ -3661,6 +3706,117 @@ function HcpModal({ onClose, onSave }) {
 /* ════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════ */
+function exportExcel(c) {
+  // Jednoduchý HTML tabulka export jako .xls (otevře se v Excelu)
+  const nameId  = c.fieldMeta?.nameId;
+  const emailId = c.fieldMeta?.emailId;
+  const phoneId = c.fieldMeta?.phoneId;
+  const header = [...c.fields.map(f => f.label), "HCP", "Stav", "Skupina", "Přidal", "Oddělení"].join("	");
+  const rows = c.parts.map(p => {
+    const vals = c.fields.map(f => p.data[f.id] || "");
+    const group = c.groups.find(g => g.id === p.group)?.name || "";
+    const state = STATES[p.state]?.label || p.state;
+    return [...vals, p.hcp || "", state, group, p.addedBy?.name || "", p.addedBy?.dept || ""].join("	");
+  });
+  const tsv = [header, ...rows].join("\n");
+  const blob = new Blob(["﻿" + tsv], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = `${c.name}-ucastnici.xls`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportBudgetPdf(c) {
+  const items = (c.budget?.items || []).filter(i => i.expNet || i.realNet);
+  const totalExp  = items.reduce((s, i) => s + Math.round((i.expNet||0) * (1 + (i.vat||0)/100)), 0);
+  const totalReal = items.reduce((s, i) => s + Math.round((i.realNet||0) * (1 + (i.vat||0)/100)), 0);
+  const colors = ["#c8a044","#2e7d54","#4e8fbd","#9068c8","#c4614e","#d4a03a","#256b46","#7a5c2e","#5a8a9f","#8a6ab0"];
+  
+  // Koláčový graf — SVG
+  const totalForPie = items.reduce((s,i) => s + Math.round((i.expNet||0)*(1+(i.vat||0)/100)), 0) || 1;
+  let piePath = ""; let startAngle = 0;
+  const pieSlices = items.map((item, idx) => {
+    const val = Math.round((item.expNet||0)*(1+(item.vat||0)/100));
+    const pct = val / totalForPie;
+    const angle = pct * 2 * Math.PI;
+    const x1 = 100 + 90 * Math.cos(startAngle);
+    const y1 = 100 + 90 * Math.sin(startAngle);
+    const x2 = 100 + 90 * Math.cos(startAngle + angle);
+    const y2 = 100 + 90 * Math.sin(startAngle + angle);
+    const large = angle > Math.PI ? 1 : 0;
+    const path = `M100,100 L${x1.toFixed(1)},${y1.toFixed(1)} A90,90 0 ${large},1 ${x2.toFixed(1)},${y2.toFixed(1)} Z`;
+    startAngle += angle;
+    return { path, color: colors[idx % colors.length], label: item.label, val, pct: Math.round(pct*100) };
+  });
+
+  const rows = items.map((i, idx) => {
+    const expG = Math.round((i.expNet||0)*(1+(i.vat||0)/100));
+    const realG = Math.round((i.realNet||0)*(1+(i.vat||0)/100));
+    const diff = realG - expG;
+    return `<tr>
+      <td style="padding:7px 10px;border-bottom:1px solid #2a3f33">${i.label}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #2a3f33;color:#888">${i.supplier||"—"}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #2a3f33;text-align:right;color:#4e8fbd">${expG.toLocaleString("cs-CZ")} Kč</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #2a3f33;text-align:right;color:#2e7d54">${i.realNet ? realG.toLocaleString("cs-CZ")+" Kč" : "—"}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #2a3f33;text-align:right;color:${diff > 0 ? "#c4614e" : "#2e7d54"};font-weight:600">${i.realNet ? (diff > 0 ? "+" : "")+diff.toLocaleString("cs-CZ")+" Kč" : "—"}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #2a3f33"><div style="width:10px;height:10px;background:${colors[idx%colors.length]};border-radius:2px;display:inline-block"></div></td>
+    </tr>`;
+  }).join("");
+
+  const legend = pieSlices.map(s => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px"><div style="width:12px;height:12px;background:${s.color};border-radius:2px;flex-shrink:0"></div><span>${s.label}</span><span style="color:#888;margin-left:auto">${s.pct}%</span></div>`).join("");
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Rozpočet — ${c.name}</title>
+  <style>body{font-family:Arial,sans-serif;background:#0f1a14;color:#e4e8de;margin:0;padding:24px}
+  h1{color:#c8a044;margin-bottom:4px}h2{color:#c8a044;font-size:14px;margin:18px 0 9px;border-bottom:1px solid #2a3f33;padding-bottom:6px}
+  table{width:100%;border-collapse:collapse;background:#16241c;border-radius:8px;overflow:hidden}
+  th{background:#1c2e24;padding:8px 10px;text-align:left;font-size:11px;color:#7a9480;letter-spacing:.5px;text-transform:uppercase}
+  .sum{display:flex;gap:16px;margin-bottom:18px}.sum-card{background:#16241c;border:1px solid #2a3f33;border-radius:8px;padding:11px 15px;flex:1}
+  .sum-n{font-size:18px;font-weight:700}.sum-l{font-size:10px;color:#7a9480;margin-top:2px}
+  @media print{body{background:#fff;color:#000}.sum-card{border-color:#ccc}table{border:1px solid #ccc}th{background:#f5f5f5;color:#555}}
+  </style></head><body>
+  <h1>Rozpočet — ${c.name}</h1>
+  <div style="font-size:12px;color:#7a9480;margin-bottom:18px">${c.date ? new Date(c.date).toLocaleDateString("cs-CZ",{day:"numeric",month:"long",year:"numeric"}) : ""} · ${c.place||""}</div>
+  <div class="sum">
+    <div class="sum-card"><div class="sum-n" style="color:#4e8fbd">${totalExp.toLocaleString("cs-CZ")} Kč</div><div class="sum-l">Plánované náklady (s DPH)</div></div>
+    <div class="sum-card"><div class="sum-n" style="color:#2e7d54">${totalReal.toLocaleString("cs-CZ")} Kč</div><div class="sum-l">Reálné náklady (s DPH)</div></div>
+    <div class="sum-card"><div class="sum-n" style="color:${totalReal<=totalExp?"#2e7d54":"#c4614e"}">${totalReal>0?(totalReal-totalExp>0?"+":"")+(totalReal-totalExp).toLocaleString("cs-CZ")+" Kč":"—"}</div><div class="sum-l">Rozdíl plán − reál</div></div>
+  </div>
+  <div style="display:flex;gap:24px;align-items:flex-start;margin-bottom:24px">
+    <div style="flex:1">
+      <h2>Koláčový graf — plánované náklady</h2>
+      <div style="display:flex;gap:18px;align-items:center">
+        <svg width="200" height="200" viewBox="0 0 200 200">${pieSlices.map(s=>`<path d="${s.path}" fill="${s.color}" stroke="#0f1a14" stroke-width="2"/>`).join("")}<circle cx="100" cy="100" r="45" fill="#0f1a14"/><text x="100" y="96" text-anchor="middle" fill="#e4e8de" font-size="12" font-family="Arial">Celkem</text><text x="100" y="112" text-anchor="middle" fill="#c8a044" font-size="11" font-family="Arial" font-weight="bold">${totalExp.toLocaleString("cs-CZ")} Kč</text></svg>
+        <div style="flex:1">${legend}</div>
+      </div>
+    </div>
+  </div>
+  <h2>Položky rozpočtu</h2>
+  <table><thead><tr><th>Název</th><th>Dodavatel</th><th>Plán s DPH</th><th>Reál s DPH</th><th>Rozdíl</th><th></th></tr></thead><tbody>${rows}</tbody>
+  <tfoot><tr style="background:#1c2e24"><td colspan="2" style="padding:9px 10px;font-weight:700">CELKEM</td><td style="padding:9px 10px;text-align:right;color:#4e8fbd;font-weight:700">${totalExp.toLocaleString("cs-CZ")} Kč</td><td style="padding:9px 10px;text-align:right;color:#2e7d54;font-weight:700">${totalReal>0?totalReal.toLocaleString("cs-CZ")+" Kč":"—"}</td><td style="padding:9px 10px;text-align:right;font-weight:700;color:${totalReal<=totalExp?"#2e7d54":"#c4614e"}">${totalReal>0?(totalReal-totalExp>0?"+":"")+(totalReal-totalExp).toLocaleString("cs-CZ")+" Kč":"—"}</td><td></td></tr></tfoot>
+  </table>
+  <div style="margin-top:18px;font-size:11px;color:#7a9480;text-align:right">Vygenerováno: ${new Date().toLocaleString("cs-CZ")} · Akce S&W automobily</div>
+  <script>window.onload=()=>window.print()</script></body></html>`;
+
+  const w = window.open("", "_blank");
+  w.document.write(html);
+  w.document.close();
+}
+
+function exportBudgetExcel(c) {
+  const items = c.budget?.items || [];
+  const header = ["Název", "Dodavatel", "Poznámka", "DPH %", "Plán bez DPH", "Plán s DPH", "Reál bez DPH", "Reál s DPH"].join("	");
+  const rows = items.map(i => {
+    const vatM = 1 + (i.vat || 0) / 100;
+    const expG = Math.round((i.expNet || 0) * vatM);
+    const realG = Math.round((i.realNet || 0) * vatM);
+    return [i.label, i.supplier || "", i.note || "", `${i.vat || 0}%`, i.expNet || 0, expG, i.realNet || 0, realG].join("	");
+  });
+  const tsv = [header, ...rows].join("\n");
+  const blob = new Blob(["﻿" + tsv], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = `${c.name}-rozpocet.xls`; a.click();
+  URL.revokeObjectURL(url);
+}
+
 function exportCsv(c) {
   const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
   const header = [...c.fields.map((f) => f.label), "HCP", "Skupina", "Stav", "Poznámka"].map(esc).join(";");
