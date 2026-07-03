@@ -13,12 +13,27 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.9";
-const APP_BUILD = "2026-07-03 21:04";
+const APP_VERSION = "0.10";
+const APP_BUILD = "2026-07-03 21:27";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.10",
+    date: "3. 7. 2026",
+    title: "Testovací jízdy — rezervační mřížka",
+    items: [
+      "🚗 Nový modul „Rezervace jízd\" pro akce typu Testovací jízda — mřížka auta (řádky) × časové sloty (sloupce).",
+      "🅿️ Vozový park akce — přidáš modely, které ten den jezdí (SPZ, poznámka), max 10 vozů.",
+      "🕐 Časová osa slotů podle začátku, konce a délky jízdy (30 nebo 60 min).",
+      "👤 Rezervace zákazníka klikem do buňky. Jeden zákazník může mít víc vozů — u jména se ukáže počet.",
+      "🔧 Blokace slotu (pauza, tankování, servis) — auto v tu chvíli nejezdí.",
+      "↔️ Přetahování rezervací mezi volnými buňkami, hlídání obsazenosti (dvě rezervace na jeden slot nejdou).",
+      "📤 Export mřížky do CSV.",
+      "📨 Rezervace přes odkaz v pozvánce (zákazník si vybere vůz a čas sám) přijde s napojením na server.",
+    ],
+  },
   {
     version: "0.9",
     date: "3. 7. 2026",
@@ -224,11 +239,29 @@ const partDivisions = (p) => {
 };
 
 const ACTIVITY_TYPES = [
-  { id: "golf",      label: "⛳ Golf",            hasStartList: true  },
-  { id: "degustace", label: "🍷 Degustace",       hasStartList: false },
-  { id: "testjizda", label: "🚗 Testovací jízda", hasStartList: false },
-  { id: "jine",      label: "📋 Jiné",            hasStartList: false },
+  { id: "golf",      label: "⛳ Golf",            hasStartList: true,  hasReservation: false },
+  { id: "degustace", label: "🍷 Degustace",       hasStartList: false, hasReservation: false },
+  { id: "testjizda", label: "🚗 Testovací jízda", hasStartList: false, hasReservation: true  },
+  { id: "jine",      label: "📋 Jiné",            hasStartList: false, hasReservation: false },
 ];
+
+/* ── testovací jízdy: helpery pro časové sloty ── */
+const DRIVE_INTERVALS = [30, 60];
+// vygeneruje pole časových slotů (indexy) mezi start–end po intervalu
+const driveSlots = (start, end, interval) => {
+  if (!start || !end || !interval) return [];
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const s = sh * 60 + sm, e = eh * 60 + em;
+  if (e <= s) return [];
+  const out = [];
+  for (let t = s; t + interval <= e; t += interval) {
+    out.push({ idx: out.length, from: t, to: t + interval });
+  }
+  return out;
+};
+const minToHM = (t) => `${String(Math.floor(t / 60) % 24).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+const mkCar = (model = "", spz = "", note = "") => ({ id: uid(), model, spz, note });
 
 const EQ_PRESETS = [
   { id: "own_car",    label: "Vlastní auto",     icon: "🚗", rentable: false },
@@ -393,7 +426,53 @@ const seed = () => {
     survey: { fields: [], responses: [], sent: false, sentAt: null },
     budget: { eventBudget: 0, items: [] },
   };
-  return [golf, wine];
+  const f3 = baseFields();
+  const tdCars = [
+    mkCar("EQS 580 4MATIC", "1AB 2345", "elektro, plné nabití"),
+    mkCar("GLE 450 4MATIC", "2CD 6789", ""),
+    mkCar("AMG GT 63 S",    "3EF 1011", "sportovní, jen zkušení řidiči"),
+    mkCar("Sprinter 319 CDI","4GH 1213", "užitkový"),
+  ];
+  const tdParts = [
+    { id: uid(), state: "potvrzen", note: "", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Jan Novák",     [f3[1].id]: "jan.novak@email.cz", [f3[2].id]: "+420 601 234 567" } },
+    { id: uid(), state: "potvrzen", note: "", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Eva Dvořáková", [f3[1].id]: "eva.d@firma.cz",      [f3[2].id]: "+420 777 888 999" } },
+    { id: uid(), state: "prihlasen",note: "", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Petr Svoboda",  [f3[1].id]: "p.svoboda@mail.com",  [f3[2].id]: "+420 602 111 222" } },
+    { id: uid(), state: "ceka",     note: "Přidal: Novotný", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Ivana Králová", [f3[1].id]: "ivana.k@email.cz",   [f3[2].id]: "+420 606 777 888" } },
+  ];
+  const testdrive = {
+    id: uid(), name: "Den testovacích jízd", date: "2026-07-18", place: "S&W Praha-Chodov",
+    capacity: 20, owner: "me", activityType: "testjizda", approvers: ["pavel"], approver: "pavel",
+    fields: f3, fieldMeta: { nameId: f3[0].id, emailId: f3[1].id, phoneId: f3[2].id },
+    startTime: "", interval: 15, groups: [], equipment: [],
+    // testovací jízdy:
+    testCars: tdCars,
+    driveStart: "09:00", driveEnd: "16:00", driveInterval: 30,
+    reservations: [
+      { id: uid(), carId: tdCars[0].id, slotIndex: 0, partId: tdParts[0].id },
+      { id: uid(), carId: tdCars[0].id, slotIndex: 2, partId: tdParts[1].id },
+      { id: uid(), carId: tdCars[1].id, slotIndex: 1, partId: tdParts[0].id },
+      { id: uid(), carId: tdCars[2].id, slotIndex: 3, partId: null, blocked: true, note: "Tankování" },
+    ],
+    parts: tdParts,
+    leads: [],
+    needs: { items: [] },
+    team: { members: [], teamsUrl: "", multiDay: false },
+    invite: { bgColor: "#12233a", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [
+      { id: uid(), type: "header", content: "Den testovacích jízd S&W", align: "center", bold: true, size: 20, color: "#f2ede0" },
+      { id: uid(), type: "text", content: "Vážený/á {{jmeno}},\n\nzveme Vás vyzkoušet si naše vozy naživo. Vyberte si model a čas, který Vám vyhovuje.", align: "left", bold: false, size: 14, color: "#e4e8de" },
+      { id: uid(), type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] },
+      { id: uid(), type: "confirm", label: "🚗 Rezervovat testovací jízdu", url: "{{golf_odkaz}}", color: "#2e7d54" },
+      { id: uid(), type: "decline", label: "✖ Nemohu se zúčastnit", url: "{{odmitnout_odkaz}}", color: "#b4483a" },
+    ] },
+    inviteMode: "batch",
+    inviteTemplate: "",
+    reminders: { r0: true, r7: true, r1: true, rCustom: [], rAfter1: true },
+    golfStartType: "interval",
+    participation: { enabled: false, basePrice: 0, items: [] },
+    survey: { fields: [], responses: [], sent: false, sentAt: null },
+    budget: { eventBudget: 0, items: [] },
+  };
+  return [golf, wine, testdrive];
 };
 
 /* ════════════════════════════════════════
@@ -1210,6 +1289,8 @@ function CreateWizard({ onClose, onCreate, editCampaign }) {
       id: uid(), ...info, approver: (info.approvers||[])[0] || "mira", owner: "me", fields, parts: [], groups: [], equipment,
       fieldMeta: { nameId, emailId, phoneId, hcpId },
       startTime: "08:00", interval: 15,
+      // testovací jízdy — prázdný park, rozumná časová osa
+      testCars: [], driveStart: "09:00", driveEnd: "16:00", driveInterval: 30, reservations: [],
       inviteMode, inviteTemplate: inviteTpl,
       reminders, golfStartType: golfStart,
       participation,
@@ -1765,6 +1846,9 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
         {isMgmt && ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasStartList && (
           <DTab active={tab === "start"} onClick={() => setTab("start")} icon={Flag}>Startovní listina</DTab>
         )}
+        {isMgmt && ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasReservation && (
+          <DTab active={tab === "drive"} onClick={() => setTab("drive")} icon={CalendarCheck}>Rezervace jízd</DTab>
+        )}
       </div>
 
       {tab === "list"   && <ParticipantList c={c} role={role} crossMap={crossMap} full={full} isGolf={isGolf} canEdit={canEdit} nameId={nameId} emailId={emailId} phoneId={phoneId} dupErr={dupErr} setState={setState} setNote={setNote} setGroup={setGroup} setCrm={setCrm} remove={remove} canApprove={canApprove} onAddOpen={() => setAdding(true)} onSendBatch={sendBatchInvites} onResend={resendInvite} inviteMode={c.inviteMode} assign={assign} currentUserId={currentUserId} />}
@@ -1777,6 +1861,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       {tab === "leads"  && <LeadsTab c={c} role={role} onUpdate={onUpdate} />}
       {isMgmt && tab === "report" && <ReportTab c={c} />}
       {isMgmt && tab === "start"  && <StartList c={c} role={role} onUpdate={onUpdate} />}
+      {isMgmt && tab === "drive"  && <TestDriveGrid c={c} role={role} onUpdate={onUpdate} />}
 
       {editingCampaign && <CreateWizard editCampaign={c} onClose={() => setEditingCampaign(false)} onCreate={(updated) => { onUpdate(() => updated); setEditingCampaign(false); }} />}
       {adding   && <AddModal fields={c.fields} fieldMeta={c.fieldMeta} full={full} crossMap={crossMap} campEquipment={c.equipment || []} onClose={() => setAdding(false)} onAdd={(data, eq, info) => { if (addPart(data, eq, info)) setAdding(false); }} />}
@@ -4018,6 +4103,228 @@ function StartList({ c, role, onUpdate }) {
       </div>
     </div>
   );
+}
+
+/* ════════════════════════════════════════
+   TESTOVACÍ JÍZDY — rezervační mřížka
+   Auta (řádky) × časové sloty (sloupce).
+   Buňka: prázdná / zákazník / 🔧 blok (pauza, servis).
+   Zákazník smí mít víc rezervací (víc aut).
+════════════════════════════════════════ */
+function TestDriveGrid({ c, role, onUpdate }) {
+  const { nameId } = c.fieldMeta;
+  const canEdit = role === "admin" || role === "approver";
+  const [dragRes, setDragRes] = useState(null); // id přetahované rezervace
+  const [cellMenu, setCellMenu] = useState(null); // { carId, slotIndex }
+
+  const cars = c.testCars || [];
+  const reservations = c.reservations || [];
+  const slots = driveSlots(c.driveStart, c.driveEnd, c.driveInterval || 30);
+  // potvrzení/přihlášení zákazníci = kandidáti na rezervaci
+  const customers = c.parts.filter((p) => STARTLIST_OK.includes(p.state));
+
+  const resAt = (carId, slotIndex) => reservations.find((r) => r.carId === carId && r.slotIndex === slotIndex);
+  const custName = (partId) => customers.find((p) => p.id === partId)?.data[nameId] || c.parts.find((p) => p.id === partId)?.data[nameId] || "—";
+  // kolik rezervací má zákazník celkem (pro badge)
+  const custResCount = (partId) => reservations.filter((r) => r.partId === partId).length;
+
+  const patchRes = (fn) => onUpdate((camp) => ({ ...camp, reservations: fn(camp.reservations || []) }));
+
+  const bookCustomer = (carId, slotIndex, partId) => {
+    patchRes((rs) => [...rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId, blocked: false }]);
+    setCellMenu(null);
+  };
+  const blockCell = (carId, slotIndex, note = "") => {
+    patchRes((rs) => [...rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId: null, blocked: true, note }]);
+    setCellMenu(null);
+  };
+  const clearCell = (carId, slotIndex) => {
+    patchRes((rs) => rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)));
+    setCellMenu(null);
+  };
+  // přesun rezervace do jiné buňky (drag&drop) — cílová buňka musí být volná
+  const moveRes = (resId, carId, slotIndex) => {
+    if (!canEdit) return;
+    if (resAt(carId, slotIndex)) return; // obsazeno → nic
+    patchRes((rs) => rs.map((r) => r.id === resId ? { ...r, carId, slotIndex } : r));
+  };
+
+  // správa vozového parku
+  const addCar    = () => onUpdate((camp) => ({ ...camp, testCars: [...(camp.testCars || []), mkCar("Nový model")] }));
+  const updCar    = (id, patch) => onUpdate((camp) => ({ ...camp, testCars: (camp.testCars || []).map((car) => car.id === id ? { ...car, ...patch } : car) }));
+  const removeCar = (id) => onUpdate((camp) => ({ ...camp, testCars: (camp.testCars || []).filter((car) => car.id !== id), reservations: (camp.reservations || []).filter((r) => r.carId !== id) }));
+
+  const setDrive = (patch) => onUpdate((camp) => ({ ...camp, ...patch }));
+
+  const totalBooked = reservations.filter((r) => !r.blocked).length;
+  const totalCells  = cars.length * slots.length;
+
+  return (
+    <div>
+      {/* nastavení času */}
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 14, background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14, flexWrap: "wrap" }}>
+        <div style={{ width: 120 }}><label style={lbl}>Začátek</label><input type="time" value={c.driveStart || ""} onChange={(e) => setDrive({ driveStart: e.target.value })} style={inputStyle} disabled={!canEdit} /></div>
+        <div style={{ width: 120 }}><label style={lbl}>Konec</label><input type="time" value={c.driveEnd || ""} onChange={(e) => setDrive({ driveEnd: e.target.value })} style={inputStyle} disabled={!canEdit} /></div>
+        <div style={{ width: 150 }}><label style={lbl}>Délka jízdy</label>
+          <select value={c.driveInterval || 30} onChange={(e) => setDrive({ driveInterval: +e.target.value })} style={inputStyle} disabled={!canEdit}>
+            {DRIVE_INTERVALS.map((m) => <option key={m} value={m}>{m} min</option>)}
+          </select>
+        </div>
+        <div style={{ fontSize: 12, color: T.textDim, display: "flex", alignItems: "center", gap: 6 }}>
+          <Clock size={13} color={T.brass} />{cars.length} vozů · {slots.length} slotů · {totalBooked}/{totalCells} obsazeno{!canEdit ? " · pouze prohlížení" : ""}
+        </div>
+        {canEdit && <Btn kind="ghost" icon={Download} small onClick={() => exportTestDrive(c, cars, slots, resAt, custName)}>Export</Btn>}
+      </div>
+
+      {/* vozový park */}
+      <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14, marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}><Video size={15} color={T.brass} /><span style={{ fontSize: 14, fontWeight: 600 }}>Vozový park ({cars.length})</span></div>
+          {canEdit && cars.length < 10 && <Btn kind="ghost" icon={Plus} small onClick={addCar}>Přidat vůz</Btn>}
+        </div>
+        {cars.length === 0 && <div style={{ fontSize: 12.5, color: T.textDim, padding: "6px 2px" }}>Zatím žádné vozy. Přidejte modely, které ten den pojedou (max 10).</div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+          {cars.map((car) => (
+            <div key={car.id} style={{ display: "flex", gap: 8, alignItems: "center", background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 10px" }}>
+              <span style={{ fontSize: 15 }}>🚗</span>
+              <input value={car.model} onChange={(e) => updCar(car.id, { model: e.target.value })} placeholder="Model vozu" disabled={!canEdit} style={{ ...inputStyle, flex: 2, padding: "5px 8px", fontSize: 13 }} />
+              <input value={car.spz} onChange={(e) => updCar(car.id, { spz: e.target.value })} placeholder="SPZ" disabled={!canEdit} style={{ ...inputStyle, width: 110, padding: "5px 8px", fontSize: 13 }} />
+              <input value={car.note} onChange={(e) => updCar(car.id, { note: e.target.value })} placeholder="poznámka…" disabled={!canEdit} style={{ ...inputStyle, flex: 2, padding: "5px 8px", fontSize: 12.5 }} />
+              {canEdit && <button onClick={() => removeCar(car.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger, padding: 4 }}><Trash2 size={14} /></button>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* rezervační mřížka */}
+      {cars.length > 0 && slots.length > 0 ? (
+        <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14, overflowX: "auto" }}>
+          <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 10 }}>
+            {canEdit ? "Klikni na buňku pro rezervaci / blokaci. Rezervace lze přetahovat mezi volnými buňkami." : "Přehled rezervací."}
+          </div>
+          <table style={{ borderCollapse: "separate", borderSpacing: 3, fontSize: 12.5 }}>
+            <thead>
+              <tr>
+                <th style={{ position: "sticky", left: 0, background: T.panel, textAlign: "left", padding: "6px 10px", minWidth: 150, zIndex: 2 }}></th>
+                {slots.map((s) => (
+                  <th key={s.idx} style={{ padding: "6px 8px", color: T.brass, fontWeight: 600, whiteSpace: "nowrap", fontSize: 11.5, textAlign: "center", minWidth: 78 }}>
+                    {minToHM(s.from)}
+                    <div style={{ fontSize: 10, color: T.textDim, fontWeight: 400 }}>–{minToHM(s.to)}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {cars.map((car) => (
+                <tr key={car.id}>
+                  <td style={{ position: "sticky", left: 0, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 7, padding: "6px 10px", fontWeight: 600, zIndex: 1 }}>
+                    <div style={{ fontSize: 12.5 }}>{car.model || "—"}</div>
+                    {car.spz && <div style={{ fontSize: 10.5, color: T.textDim }}>{car.spz}</div>}
+                  </td>
+                  {slots.map((s) => {
+                    const r = resAt(car.id, s.idx);
+                    const filled = !!r;
+                    const isBlock = r?.blocked;
+                    return (
+                      <td key={s.idx}
+                        onDragOver={(e) => { if (canEdit && dragRes && !filled) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
+                        onDrop={(e) => { e.preventDefault(); if (canEdit && dragRes && !filled) { moveRes(dragRes, car.id, s.idx); setDragRes(null); } }}
+                        style={{ padding: 0, verticalAlign: "top" }}>
+                        <div
+                          draggable={canEdit && filled && !isBlock}
+                          onDragStart={(e) => { if (canEdit && filled && !isBlock) { setDragRes(r.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", r.id); } }}
+                          onDragEnd={() => setDragRes(null)}
+                          onClick={() => { if (canEdit) setCellMenu(cellMenu && cellMenu.carId === car.id && cellMenu.slotIndex === s.idx ? null : { carId: car.id, slotIndex: s.idx }); }}
+                          style={{
+                            minWidth: 78, minHeight: 42, borderRadius: 7, padding: "6px 7px", cursor: canEdit ? "pointer" : "default",
+                            background: isBlock ? `${T.warn}22` : filled ? `${T.greenLite}1e` : T.bg,
+                            border: `1px solid ${isBlock ? T.warn + "66" : filled ? T.greenLite + "66" : T.line}`,
+                            display: "flex", flexDirection: "column", justifyContent: "center", gap: 2,
+                          }}>
+                          {isBlock ? (
+                            <span style={{ fontSize: 11.5, color: T.warn, fontWeight: 600 }}>🔧 {r.note || "Blok"}</span>
+                          ) : filled ? (
+                            <>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: T.cream, lineHeight: 1.2 }}>{custName(r.partId)}</span>
+                              {custResCount(r.partId) > 1 && <span style={{ fontSize: 9.5, color: T.brass }}>{custResCount(r.partId)}× vůz</span>}
+                            </>
+                          ) : (
+                            <span style={{ fontSize: 15, color: T.line, textAlign: "center" }}>+</span>
+                          )}
+                        </div>
+
+                        {/* mini-menu buňky */}
+                        {canEdit && cellMenu && cellMenu.carId === car.id && cellMenu.slotIndex === s.idx && (
+                          <div style={{ position: "relative", zIndex: 20 }}>
+                            <div style={{ position: "absolute", top: 4, left: 0, background: T.panel2, border: `1px solid ${T.brass}55`, borderRadius: 9, padding: 8, minWidth: 190, boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+                              <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>{car.model} · {minToHM(s.from)}</div>
+                              {!r?.blocked && (
+                                <select
+                                  value={r?.partId || ""}
+                                  onChange={(e) => e.target.value ? bookCustomer(car.id, s.idx, e.target.value) : clearCell(car.id, s.idx)}
+                                  style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, marginBottom: 6 }}>
+                                  <option value="">— vyber zákazníka —</option>
+                                  {customers.map((p) => <option key={p.id} value={p.id}>{p.data[nameId] || "—"}</option>)}
+                                </select>
+                              )}
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                <button onClick={() => blockCell(car.id, s.idx, "Pauza")} style={{ flex: 1, fontSize: 11, padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.warn}55`, background: `${T.warn}18`, color: T.warn, cursor: "pointer", fontFamily: "inherit" }}>🔧 Blok</button>
+                                {filled && <button onClick={() => clearCell(car.id, s.idx)} style={{ flex: 1, fontSize: 11, padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.danger}55`, background: `${T.danger}18`, color: T.danger, cursor: "pointer", fontFamily: "inherit" }}>Uvolnit</button>}
+                                <button onClick={() => setCellMenu(null)} style={{ fontSize: 11, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.bg, color: T.textDim, cursor: "pointer", fontFamily: "inherit" }}>Zavřít</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {/* přehled kdo kolik má */}
+          {customers.length > 0 && (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.line}` }}>
+              <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Rezervace zákazníků</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {customers.map((p) => {
+                  const cnt = custResCount(p.id);
+                  return (
+                    <div key={p.id} style={{ fontSize: 12, padding: "5px 11px", borderRadius: 8, border: `1px solid ${cnt ? T.greenLite + "55" : T.line}`, background: cnt ? `${T.greenLite}14` : T.bg, color: cnt ? T.cream : T.textDim }}>
+                      {p.data[nameId] || "—"} {cnt > 0 && <span style={{ color: T.brass, fontWeight: 600 }}>· {cnt}× vůz</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 30, textAlign: "center", color: T.textDim, fontSize: 13 }}>
+          {cars.length === 0 ? "Přidejte alespoň jeden vůz." : "Nastavte začátek, konec a délku jízdy, aby se vygenerovaly časové sloty."}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function exportTestDrive(c, cars, slots, resAt, custName) {
+  const rows = [["Vůz", "SPZ", ...slots.map((s) => `${minToHM(s.from)}–${minToHM(s.to)}`)]];
+  cars.forEach((car) => {
+    const row = [car.model, car.spz];
+    slots.forEach((s) => {
+      const r = resAt(car.id, s.idx);
+      row.push(r ? (r.blocked ? `BLOK: ${r.note || ""}` : custName(r.partId)) : "");
+    });
+    rows.push(row);
+  });
+  const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";")).join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `testovaci-jizdy-${c.name.replace(/\s+/g, "-")}.csv`;
+  a.click(); URL.revokeObjectURL(url);
 }
 
 /* ════════════════════════════════════════
