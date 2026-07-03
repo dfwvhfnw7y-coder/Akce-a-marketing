@@ -13,12 +13,26 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.8";
-const APP_BUILD = "2026-07-03 20:18";
+const APP_VERSION = "0.9";
+const APP_BUILD = "2026-07-03 21:00";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.9",
+    date: "3. 7. 2026",
+    title: "Role, oprávnění a pozvánka",
+    items: [
+      "🔒 Prodejce a hosteska nově vidí jen záložky Účastníci a Leady. Materiály, rozpočet, report, pozvánka, tým, dotazník a startovní listina zůstávají jen vedení.",
+      "📐 Oprava přetékajícího textu obsazenosti („X volných\") v seznamu akcí u prodejce.",
+      "📝 Přidání zájmu o vůz u konkrétního hosta nově správně předvyplní jeho jméno a telefon.",
+      "🏌️ Stabilnější přetahování hráčů mezi flighty ve startovní listině — přesun je spolehlivý napoprvé a pořadí se už nepřerovnává náhodně.",
+      "✖ Nový blok „Odmítnout účast\" v pozvánce (proměnná {{odmitnout_odkaz}}) — zákazník dá vědět, že nedorazí, ať s ním nemusíme počítat.",
+      "⛳ U golfu si zákazník na potvrzovací stránce sám vyplní HCP a zvolí zapůjčené vybavení — prodejce to za něj už nedělá (proměnná {{golf_odkaz}}).",
+      "🔔 „Připomenout schvalovatelům\" — připomínka se posílá všem schvalovatelům dané akce, ne jen jednomu.",
+    ],
+  },
   {
     version: "0.8",
     date: "3. 7. 2026",
@@ -301,7 +315,8 @@ const seed = () => {
         { id: "b5", type: "divider" },
         { id: "b6", type: "text",      content: "Dress code: golfový oděv, kolíkové boty povinné.", align: "left", bold: false, size: 13, color: "#c8c4b4" },
         { id: "b7", type: "button",    label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#c8a044" },
-        { id: "b7c", type: "confirm",  label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" },
+        { id: "b7c", type: "confirm",  label: "✅ Potvrdit účast (+ HCP a vybavení)", url: "{{potvrdit_odkaz}}", color: "#2e7d54" },
+        { id: "b7d", type: "decline",  label: "✖ Nemohu se zúčastnit", url: "{{odmitnout_odkaz}}", color: "#b4483a" },
         { id: "b8", type: "link",      label: "📸 Fotky z loňského golfového dne", url: "", italic: true },
       ],
     },
@@ -369,7 +384,7 @@ const seed = () => {
     leads: [],
     needs: { items: [] },
     team: { members: [], teamsUrl: "", multiDay: false },
-    invite: { bgColor: "#2a1a3a", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [{ id: "w1", type: "header", content: "Degustace vín S&W", align: "center", bold: true, size: 20, color: "#f2ede0" }, { id: "w2", type: "text", content: "Vážený/á {{jmeno}},\n\nzveme Vás na exkluzivní degustaci.", align: "left", bold: false, size: 14, color: "#e4e8de" }, { id: "w3", type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] }, { id: "w4", type: "button", label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#9068c8" }, { id: "w4c", type: "confirm", label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" }] },
+    invite: { bgColor: "#2a1a3a", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [{ id: "w1", type: "header", content: "Degustace vín S&W", align: "center", bold: true, size: 20, color: "#f2ede0" }, { id: "w2", type: "text", content: "Vážený/á {{jmeno}},\n\nzveme Vás na exkluzivní degustaci.", align: "left", bold: false, size: 14, color: "#e4e8de" }, { id: "w3", type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] }, { id: "w4", type: "button", label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#9068c8" }, { id: "w4c", type: "confirm", label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" }, { id: "w4d", type: "decline", label: "✖ Nemohu se zúčastnit", url: "{{odmitnout_odkaz}}", color: "#b4483a" }] },
     inviteMode: "batch",
     inviteTemplate: "",
     reminders: { r0: true, r7: true, r1: true, rCustom: [], rAfter1: true },
@@ -594,11 +609,13 @@ export default function App() {
 
   const remind = (cid) => {
     const c = campaigns.find((x) => x.id === cid);
-    const ap = APPROVERS.find((a) => a.id === c?.approver);
+    const apIds = (c?.approvers && c.approvers.length) ? c.approvers : [c?.approver].filter(Boolean);
+    const aps = apIds.map((id) => APPROVERS.find((a) => a.id === id)).filter(Boolean);
+    const names = aps.map((a) => a.name).join(", ") || "schvalovatelé";
     const wc = c?.parts.filter((p) => p.state === "ceka").length || 0;
-    const msg = `${new Date().toLocaleTimeString("cs-CZ")} — Připomínka odeslána ${ap?.name}: ${wc}× čeká v „${c?.name}"`;
+    const msg = `${new Date().toLocaleTimeString("cs-CZ")} — Připomínka odeslána (${aps.length}× schvalovatel): ${names} — ${wc}× čeká v „${c?.name}"`;
     setNotifLog((n) => [msg, ...n]);
-    alert(`[Mock email]\nKomu: ${ap?.name}\nPředmět: Čeká na schválení – ${c?.name}\n\n${wc} zákazník${wc > 1 ? "ů čeká" : " čeká"} na vaše schválení.`);
+    alert(`[Mock email]\nKomu: ${names}\nPředmět: Čeká na schválení – ${c?.name}\n\n${wc} zákazník${wc > 1 ? "ů čeká" : " čeká"} na vaše schválení.`);
   };
 
   return (
@@ -728,9 +745,9 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
             const free = c.capacity - used(c);
             return (
               <div key={c.id} onClick={() => onOpen(c.id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", background: T.panel, borderRadius: 10, cursor: "pointer", border: `1px solid ${T.line}` }}>
-                <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div><div style={{ fontSize: 12, color: T.textDim }}>{fmt(c.date)} · {c.place}</div></div>
-                <div style={{ textAlign: "right" }}><div style={{ fontSize: 13, fontWeight: 600, color: free === 0 ? T.danger : free < 3 ? T.warn : T.greenLite }}>{free === 0 ? "Plno" : `${free} volných`}</div><div style={{ fontSize: 11, color: T.textDim }}>{used(c)}/{c.capacity}</div></div>
-                <div style={{ width: 70 }}><CapBar used={used(c)} cap={c.capacity} /></div>
+                <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div><div style={{ fontSize: 12, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(c.date)} · {c.place}</div></div>
+                <div style={{ textAlign: "right", width: 78, flexShrink: 0 }}><div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", color: free === 0 ? T.danger : free < 3 ? T.warn : T.greenLite }}>{free === 0 ? "Plno" : `${free} volných`}</div><div style={{ fontSize: 11, color: T.textDim }}>{used(c)}/{c.capacity}</div></div>
+                <div style={{ width: 70, flexShrink: 0 }}><CapBar used={used(c)} cap={c.capacity} /></div>
               </div>
             );
           })}
@@ -796,13 +813,14 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {campaigns.filter((c) => c.parts.some((p) => p.state === "ceka")).map((c) => {
               const wc = c.parts.filter((p) => p.state === "ceka").length;
-              const ap = APPROVERS.find((a) => a.id === c.approver);
+              const apIds = (c.approvers && c.approvers.length) ? c.approvers : [c.approver].filter(Boolean);
+              const apNames = apIds.map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ");
               return (
                 <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 9, padding: "8px 12px" }}>
                   <span style={{ fontSize: 13 }}>{c.name}</span>
                   <span style={{ fontSize: 11, color: T.purple }}>{wc}× čeká</span>
-                  <span style={{ fontSize: 11, color: T.textDim }}>→ {ap?.name}</span>
-                  <Btn kind="purple" icon={Mail} small onClick={() => onRemind(c.id)}>Upozornit</Btn>
+                  <span style={{ fontSize: 11, color: T.textDim }}>→ {apNames || "—"}</span>
+                  <Btn kind="purple" icon={Mail} small onClick={() => onRemind(c.id)}>Upozornit schvalovatele</Btn>
                 </div>
               );
             })}
@@ -821,7 +839,7 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
               <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>{c.name}</div>
               <div style={{ fontSize: 12, color: T.textDim, marginBottom: 6 }}>{fmt(c.date)} · {c.place}</div>
               <div style={{ fontSize: 11, color: T.brass, marginBottom: 10 }}>
-                {ACTIVITY_TYPES.find((x) => x.id === c.activityType)?.label} · {APPROVERS.find((a) => a.id === c.approver)?.name}
+                {ACTIVITY_TYPES.find((x) => x.id === c.activityType)?.label} · {((c.approvers && c.approvers.length) ? c.approvers : [c.approver].filter(Boolean)).map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ")}
               </div>
               <CapBar used={used(c)} cap={c.capacity} />
               {(c.equipment || []).length > 0 && (
@@ -1198,7 +1216,7 @@ function CreateWizard({ onClose, onCreate, editCampaign }) {
       leads: [],
       needs: { items: [] },
       team: { members: [], teamsUrl: "", multiDay: false },
-      invite: { bgColor: "#1a3d24", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [{ id: uid(), type: "text", content: "Vážený/á {{jmeno}},\n\nsrdečně Vás zveme na {{nazev_akce}}.", align: "left", bold: false, size: 14, color: "#e4e8de" }, { id: uid(), type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] }, { id: uid(), type: "button", label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#c8a044" }, { id: uid(), type: "confirm", label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" }] },
+      invite: { bgColor: "#1a3d24", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [{ id: uid(), type: "text", content: "Vážený/á {{jmeno}},\n\nsrdečně Vás zveme na {{nazev_akce}}.", align: "left", bold: false, size: 14, color: "#e4e8de" }, { id: uid(), type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] }, { id: uid(), type: "button", label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#c8a044" }, { id: uid(), type: "confirm", label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" }, { id: uid(), type: "decline", label: "✖ Nemohu se zúčastnit", url: "{{odmitnout_odkaz}}", color: "#b4483a" }] },
       survey: { fields: [], responses: [], sent: false, sentAt: null },
       budget: { eventBudget: 0, items: [] },
     });
@@ -1582,7 +1600,14 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
   const waitCount  = c.parts.filter((p) => p.state === "ceka").length;
   const canApprove = role === "admin" || role === "approver";
   const canEdit    = role === "admin" || role === "approver";
-  const apInfo     = APPROVERS.find((a) => a.id === c.approver);
+  const isMgmt     = role === "admin" || role === "approver";
+  const apIds      = (c.approvers && c.approvers.length) ? c.approvers : [c.approver].filter(Boolean);
+  const apNames    = apIds.map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ");
+
+  // prodejce/hosteska smí jen "list" a "leads" — když je na skrytém tabu, vrať ho na účastníky
+  React.useEffect(() => {
+    if (!isMgmt && tab !== "list" && tab !== "leads") setTab("list");
+  }, [isMgmt, tab]);
 
   const addPart = (data, eqChoice = {}, customerInfo = {}) => {
     const email = (data[emailId] || "").trim().toLowerCase();
@@ -1657,7 +1682,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
           <h2 style={{ margin: "0 0 2px", fontSize: 19, fontWeight: 600 }}>{c.name}</h2>
           <div style={{ fontSize: 12.5, color: T.textDim }}>
             {fmt(c.date)} · {c.place} · {ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.label}
-            {" · "}<span style={{ color: T.brass }}>schvaluje: {apInfo?.name}</span>
+            {" · "}<span style={{ color: T.brass }}>schvaluje: {apNames || "—"}</span>
           </div>
         </div>
         <div style={{ width: 200 }}><CapBar used={used} cap={c.capacity} /></div>
@@ -1692,7 +1717,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
                 );
               })}
             </div>
-            <Btn kind="purple" icon={Mail} small onClick={onRemind}>Připomenout {apInfo?.name}</Btn>
+            <Btn kind="purple" icon={Mail} small onClick={onRemind} title={apNames ? `Schvalovatelé: ${apNames}` : ""}>Připomenout schvalovatelům</Btn>
           </div>
           {filtered.map((p) => (
             <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 9, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 11px", marginBottom: 6 }}>
@@ -1729,29 +1754,29 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       {/* záložky */}
       <div style={{ display: "flex", gap: 3, borderBottom: `1px solid ${T.line}`, marginBottom: 16, flexWrap: "wrap" }}>
         <DTab active={tab === "list"}   onClick={() => setTab("list")}   icon={ListOrdered} badge={waitCount}>Účastníci</DTab>
-        <DTab active={tab === "groups"} onClick={() => setTab("groups")} icon={FolderOpen}>Skupiny</DTab>
-        <DTab active={tab === "needs"}  onClick={() => setTab("needs")}  icon={Layers}>Materiály</DTab>
-        <DTab active={tab === "team"}   onClick={() => setTab("team")}   icon={UserCog}>Tým akce</DTab>
-        <DTab active={tab === "budget"} onClick={() => setTab("budget")} icon={Wallet}>Rozpočet</DTab>
-        <DTab active={tab === "invite"} onClick={() => setTab("invite")} icon={MailIcon}>Pozvánka</DTab>
-        <DTab active={tab === "survey"} onClick={() => setTab("survey")} icon={ClipboardList}>Dotazník</DTab>
-        {(role === "admin" || role === "approver") && <DTab active={tab === "leads"} onClick={() => setTab("leads")} icon={TrendingUp} badge={(c.leads||[]).length}>Leady</DTab>}
-        <DTab active={tab === "report"} onClick={() => setTab("report")} icon={BarChart3}>Report</DTab>
-        {ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasStartList && (
+        {isMgmt && <DTab active={tab === "groups"} onClick={() => setTab("groups")} icon={FolderOpen}>Skupiny</DTab>}
+        {isMgmt && <DTab active={tab === "needs"}  onClick={() => setTab("needs")}  icon={Layers}>Materiály</DTab>}
+        {isMgmt && <DTab active={tab === "team"}   onClick={() => setTab("team")}   icon={UserCog}>Tým akce</DTab>}
+        {isMgmt && <DTab active={tab === "budget"} onClick={() => setTab("budget")} icon={Wallet}>Rozpočet</DTab>}
+        {isMgmt && <DTab active={tab === "invite"} onClick={() => setTab("invite")} icon={MailIcon}>Pozvánka</DTab>}
+        {isMgmt && <DTab active={tab === "survey"} onClick={() => setTab("survey")} icon={ClipboardList}>Dotazník</DTab>}
+        <DTab active={tab === "leads"} onClick={() => setTab("leads")} icon={TrendingUp} badge={(c.leads||[]).length}>Leady</DTab>
+        {isMgmt && <DTab active={tab === "report"} onClick={() => setTab("report")} icon={BarChart3}>Report</DTab>}
+        {isMgmt && ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasStartList && (
           <DTab active={tab === "start"} onClick={() => setTab("start")} icon={Flag}>Startovní listina</DTab>
         )}
       </div>
 
       {tab === "list"   && <ParticipantList c={c} role={role} crossMap={crossMap} full={full} isGolf={isGolf} canEdit={canEdit} nameId={nameId} emailId={emailId} phoneId={phoneId} dupErr={dupErr} setState={setState} setNote={setNote} setGroup={setGroup} setCrm={setCrm} remove={remove} canApprove={canApprove} onAddOpen={() => setAdding(true)} onSendBatch={sendBatchInvites} onResend={resendInvite} inviteMode={c.inviteMode} assign={assign} currentUserId={currentUserId} />}
-      {tab === "groups" && <GroupsTab c={c} canEdit={canEdit} nameId={nameId} onUpdate={onUpdate} setGroup={setGroup} />}
-      {tab === "needs"  && <NeedsTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
-      {tab === "team"   && <TeamTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
-      {tab === "budget" && <BudgetTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
-      {tab === "invite" && <InviteTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
-      {tab === "survey" && <SurveyTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
+      {isMgmt && tab === "groups" && <GroupsTab c={c} canEdit={canEdit} nameId={nameId} onUpdate={onUpdate} setGroup={setGroup} />}
+      {isMgmt && tab === "needs"  && <NeedsTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
+      {isMgmt && tab === "team"   && <TeamTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
+      {isMgmt && tab === "budget" && <BudgetTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
+      {isMgmt && tab === "invite" && <InviteTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
+      {isMgmt && tab === "survey" && <SurveyTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
       {tab === "leads"  && <LeadsTab c={c} role={role} onUpdate={onUpdate} />}
-      {tab === "report" && <ReportTab c={c} />}
-      {tab === "start"  && <StartList c={c} role={role} onUpdate={onUpdate} />}
+      {isMgmt && tab === "report" && <ReportTab c={c} />}
+      {isMgmt && tab === "start"  && <StartList c={c} role={role} onUpdate={onUpdate} />}
 
       {editingCampaign && <CreateWizard editCampaign={c} onClose={() => setEditingCampaign(false)} onCreate={(updated) => { onUpdate(() => updated); setEditingCampaign(false); }} />}
       {adding   && <AddModal fields={c.fields} fieldMeta={c.fieldMeta} full={full} crossMap={crossMap} campEquipment={c.equipment || []} onClose={() => setAdding(false)} onAdd={(data, eq, info) => { if (addPart(data, eq, info)) setAdding(false); }} />}
@@ -2097,6 +2122,7 @@ const BLOCK_TYPES = [
   { id: "image",    icon: "🖼", label: "Obrázek" },
   { id: "infobox",  icon: "ℹ", label: "Info box" },
   { id: "confirm",  icon: "✅", label: "Potvrdit účast" },
+  { id: "decline",  icon: "✖", label: "Odmítnout účast" },
   { id: "button",   icon: "⬤",  label: "Tlačítko" },
   { id: "link",     icon: "🔗", label: "Odkaz / video" },
   { id: "divider",  icon: "—",  label: "Oddělovač" },
@@ -2104,7 +2130,7 @@ const BLOCK_TYPES = [
 
 const TPL_VARS = [
   "{{jmeno}}", "{{prijmeni}}", "{{nazev_akce}}", "{{datum}}",
-  "{{misto}}", "{{flight_cas}}", "{{dress_code}}", "{{organizator_tel}}", "{{kalendar_odkaz}}", "{{potvrdit_odkaz}}",
+  "{{misto}}", "{{flight_cas}}", "{{dress_code}}", "{{organizator_tel}}", "{{kalendar_odkaz}}", "{{potvrdit_odkaz}}", "{{odmitnout_odkaz}}", "{{golf_odkaz}}",
 ];
 
 const COLORS_PALETTE = [
@@ -2121,7 +2147,8 @@ function fillInviteVars(str, c) {
     .replace(/\{\{nazev_akce\}\}/g, c.name || "").replace(/\{\{datum\}\}/g, dstr)
     .replace(/\{\{misto\}\}/g, c.place || "").replace(/\{\{flight_cas\}\}/g, c.startTime || "")
     .replace(/\{\{dress_code\}\}/g, "Smart casual").replace(/\{\{organizator_tel\}\}/g, org?.phone || "")
-    .replace(/\{\{kalendar_odkaz\}\}/g, "#").replace(/\{\{potvrdit_odkaz\}\}/g, "#");
+    .replace(/\{\{kalendar_odkaz\}\}/g, "#").replace(/\{\{potvrdit_odkaz\}\}/g, "#")
+    .replace(/\{\{odmitnout_odkaz\}\}/g, "#").replace(/\{\{golf_odkaz\}\}/g, "#");
 }
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -2135,6 +2162,7 @@ function printInviteA4(c, invite) {
     if (b.type === "infobox") return `<div style="background:rgba(255,255,255,.10);border-radius:12px;padding:16px 20px;margin-bottom:18px">${(b.items||[]).map(it => `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;font-size:16px"><span style="font-size:20px;min-width:28px">${it.icon||""}</span><span style="color:rgba(255,255,255,.55);min-width:70px">${esc(it.label)}:</span><span style="color:#f2ede0;font-weight:600">${esc(fillInviteVars(it.value, c))}</span></div>`).join("")}</div>`;
     if (b.type === "button")  return `<div style="text-align:center;margin-bottom:18px"><span style="display:inline-block;background:${b.color};color:#1a1a1a;padding:12px 30px;border-radius:9px;font-weight:700;font-size:16px">${esc(b.label)}</span></div>`;
     if (b.type === "confirm") return `<div style="text-align:center;margin-bottom:18px"><span style="display:inline-block;background:${b.color || "#2e7d54"};color:#ffffff;padding:14px 38px;border-radius:9px;font-weight:700;font-size:17px">${esc(b.label || "✅ Potvrdit účast")}</span></div>`;
+    if (b.type === "decline") return `<div style="text-align:center;margin-bottom:18px"><span style="display:inline-block;background:${b.color || "#b4483a"};color:#ffffff;padding:14px 38px;border-radius:9px;font-weight:700;font-size:17px">${esc(b.label || "✖ Nemohu se zúčastnit")}</span></div>`;
     if (b.type === "link")    return `<div style="text-align:center;margin-bottom:16px"><span style="color:#c8a044;text-decoration:underline;font-style:${b.italic?"italic":"normal"}">${esc(b.label)}</span></div>`;
     return "";
   }).join("");
@@ -2163,6 +2191,7 @@ function InviteTab({ c, canEdit, onUpdate }) {
   const [view, setView] = useState("builder"); // builder | preview
   const [a4Mode, setA4Mode] = useState(false);
   const [editBlock, setEditBlock] = useState(null);
+  const isGolf = c.activityType === "golf";
   const invite = c.invite || { bgColor: "#1a3d24", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [] };
 
   const updInvite = (patch) => onUpdate((camp) => ({ ...camp, invite: { ...camp.invite, ...patch } }));
@@ -2174,6 +2203,7 @@ function InviteTab({ c, canEdit, onUpdate }) {
       infobox: { items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] },
       button:  { label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#c8a044" },
       confirm: { label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" },
+      decline: { label: "✖ Nemohu se zúčastnit", url: "{{odmitnout_odkaz}}", color: "#b4483a" },
       link:    { label: "Odkaz", url: "", italic: false },
       divider: {},
     };
@@ -2368,11 +2398,12 @@ function InviteTab({ c, canEdit, onUpdate }) {
                             <button onClick={() => updBlock(block.id, { items: [...block.items, { icon: "📌", label: "", value: "" }] })} style={{ background: "none", border: `1px dashed ${T.brass}55`, borderRadius: 7, padding: "4px 10px", cursor: "pointer", color: T.brass, fontSize: 12, fontFamily: "inherit" }}>+ Přidat řádek</button>
                           </>
                         )}
-                        {(block.type === "button" || block.type === "confirm") && (
+                        {(block.type === "button" || block.type === "confirm" || block.type === "decline") && (
                           <>
-                            {block.type === "confirm" && <div style={{ fontSize: 11.5, color: T.greenLite, marginBottom: 8, lineHeight: 1.5 }}>✅ Tlačítko pro potvrzení účasti. Zákazník jím potvrdí, že přijde. Odkaz {"{{potvrdit_odkaz}}"} se doplní automaticky po napojení potvrzovacích linků.</div>}
+                            {block.type === "confirm" && <div style={{ fontSize: 11.5, color: T.greenLite, marginBottom: 8, lineHeight: 1.5 }}>✅ Tlačítko pro potvrzení účasti. Zákazník jím potvrdí, že přijde. Odkaz {"{{potvrdit_odkaz}}"} se doplní automaticky po napojení potvrzovacích linků.{isGolf && " U golfu na stejné stránce zákazník rovnou vyplní svůj HCP a zvolí zapůjčené vybavení — prodejce už to za něj nedělá."}</div>}
+                            {block.type === "decline" && <div style={{ fontSize: 11.5, color: T.danger, marginBottom: 8, lineHeight: 1.5 }}>✖ Tlačítko pro odmítnutí účasti. Zákazník jím dá vědět, že nedorazí — v aplikaci se rovnou označí, ať s ním nemusíte počítat. Odkaz {"{{odmitnout_odkaz}}"} se doplní automaticky.</div>}
                             <FRow label="Text tlačítka"><input value={block.label} onChange={(e) => updBlock(block.id, { label: e.target.value })} style={{ ...inputStyle, padding: "5px 8px" }} /></FRow>
-                            <FRow label={block.type === "confirm" ? "URL nebo proměnná ({{potvrdit_odkaz}})" : "URL nebo proměnná ({{kalendar_odkaz}})"} ><input value={block.url} onChange={(e) => updBlock(block.id, { url: e.target.value })} placeholder={block.type === "confirm" ? "https:// nebo {{potvrdit_odkaz}}" : "https:// nebo {{kalendar_odkaz}}"} style={{ ...inputStyle, padding: "5px 8px", fontFamily: "monospace", fontSize: 12 }} /></FRow>
+                            <FRow label={block.type === "confirm" ? "URL nebo proměnná ({{potvrdit_odkaz}})" : block.type === "decline" ? "URL nebo proměnná ({{odmitnout_odkaz}})" : "URL nebo proměnná ({{kalendar_odkaz}})"} ><input value={block.url} onChange={(e) => updBlock(block.id, { url: e.target.value })} placeholder={block.type === "confirm" ? "https:// nebo {{potvrdit_odkaz}}" : block.type === "decline" ? "https:// nebo {{odmitnout_odkaz}}" : "https:// nebo {{kalendar_odkaz}}"} style={{ ...inputStyle, padding: "5px 8px", fontFamily: "monospace", fontSize: 12 }} /></FRow>
                             <div>
                               <label style={lbl}>Barva tlačítka</label>
                               <div style={{ display: "flex", gap: 4 }}>
@@ -2472,6 +2503,12 @@ function InviteTab({ c, canEdit, onUpdate }) {
                 if (block.type === "confirm") return (
                   <div key={block.id} style={{ textAlign: "center", marginBottom: 14 }}>
                     <span style={{ display: "inline-block", background: block.color || "#2e7d54", color: "#ffffff", padding: "12px 32px", borderRadius: 9, fontWeight: 700, fontSize: invite.fontSize + 1, cursor: "pointer" }}>{block.label || "✅ Potvrdit účast"}</span>
+                    {isGolf && <div style={{ fontSize: invite.fontSize - 3, color: "rgba(255,255,255,.5)", marginTop: 6 }}>Na potvrzovací stránce vyplníte svůj HCP a vybavení</div>}
+                  </div>
+                );
+                if (block.type === "decline") return (
+                  <div key={block.id} style={{ textAlign: "center", marginBottom: 14 }}>
+                    <span style={{ display: "inline-block", background: block.color || "#b4483a", color: "#ffffff", padding: "12px 32px", borderRadius: 9, fontWeight: 700, fontSize: invite.fontSize + 1, cursor: "pointer" }}>{block.label || "✖ Nemohu se zúčastnit"}</span>
                   </div>
                 );
                 if (block.type === "link") return (
@@ -3279,16 +3316,20 @@ function LeadsTab({ c, role, onUpdate }) {
   );
 }
 
-function AddLeadModal({ c, onClose, onAdd }) {
-  const [name,     setName]     = useState("");
-  const [phone,    setPhone]    = useState("");
+function AddLeadModal({ c, onClose, onAdd, prefillName = "", prefillPhone = "", prefillPartId = null }) {
+  const participants = (c.parts || []).filter(p => ["potvrzen","prihlasen"].includes(p.state));
+  // pokud přišel konkrétní zákazník (prefillPartId), předvyber ho; jinak když je prefillName, dohledej podle jména
+  const initialPart = prefillPartId && participants.some(p => p.id === prefillPartId)
+    ? prefillPartId
+    : (prefillName ? (participants.find(p => (p.data[c.fieldMeta.nameId] || "") === prefillName)?.id || "new") : "new");
+
+  const [name,     setName]     = useState(prefillName || "");
+  const [phone,    setPhone]    = useState(prefillPhone || "");
   const [model,    setModel]    = useState("");
   const [custom,   setCustom]   = useState(false);
   const [interest, setInterest] = useState("velky");
   const [note,     setNote]     = useState("");
-  const [selPart,  setSelPart]  = useState("new");
-
-  const participants = (c.parts || []).filter(p => ["potvrzen","prihlasen"].includes(p.state));
+  const [selPart,  setSelPart]  = useState(initialPart);
 
   const pickPart = (pid) => {
     setSelPart(pid);
@@ -3443,6 +3484,7 @@ function HosteskaDetail({ c, onBack, onUpdate }) {
       {addingLead && (
         <AddLeadModal
           c={c}
+          prefillPartId={selPart || null}
           prefillName={selPart ? (c.parts.find(p => p.id === selPart)?.data[nameId] || "") : ""}
           prefillPhone={selPart ? (c.parts.find(p => p.id === selPart)?.data[phoneId] || "") : ""}
           onClose={() => setAddingLead(false)}
@@ -3914,7 +3956,18 @@ function StartList({ c, role, onUpdate }) {
     const tot = h * 60 + m + i * c.interval;
     return `${String(Math.floor(tot / 60) % 24).padStart(2, "0")}:${String(tot % 60).padStart(2, "0")}`;
   };
-  const moveTo = (pid, fi) => { if (!canEdit) return; onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, flight: fi } : p) })); };
+  // Přesun hráče: zároveň "ukotvíme" flight u VŠECH hráčů podle jejich aktuálně zobrazené pozice,
+  // aby se dynamicky rozmístění (flight == null) hráči nepřerovnávali mezi rendery a přetahování bylo stabilní.
+  const moveTo = (pid, fi) => {
+    if (!canEdit) return;
+    const posMap = {};
+    buckets.forEach((b, bi) => b.forEach((p) => { posMap[p.id] = bi; }));
+    posMap[pid] = fi; // cílový flight má přednost
+    onUpdate((camp) => ({
+      ...camp,
+      parts: camp.parts.map((p) => posMap[p.id] != null ? { ...p, flight: posMap[p.id] } : p),
+    }));
+  };
 
   return (
     <div>
@@ -3931,9 +3984,15 @@ function StartList({ c, role, onUpdate }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))", gap: 12 }}>
         {buckets.map((bucket, fi) => (
           <div key={fi}
-            onDragOver={(e) => { if (canEdit) e.preventDefault(); }}
-            onDrop={(e) => { e.preventDefault(); if (dragId && canEdit) { moveTo(dragId, fi); setDragId(null); } }}
-            style={{ background: T.panel, border: `1px solid ${bucket.length >= 4 ? T.warn + "66" : T.line}`, borderRadius: 11, padding: 12, minHeight: 130 }}>
+            onDragOver={(e) => { if (canEdit) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (!canEdit) return;
+              const pid = e.dataTransfer.getData("text/plain") || dragId;
+              if (pid) moveTo(pid, fi);
+              setDragId(null);
+            }}
+            style={{ background: dragId ? T.panel2 : T.panel, border: `1px solid ${bucket.length >= 4 ? T.warn + "66" : (dragId ? T.brass + "55" : T.line)}`, borderRadius: 11, padding: 12, minHeight: 130, transition: "border-color .12s" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9, paddingBottom: 8, borderBottom: `1px solid ${T.line}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ width: 22, height: 22, borderRadius: 6, background: T.green, color: T.cream, fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.brass}` }}>{fi + 1}</span>
@@ -3944,7 +4003,7 @@ function StartList({ c, role, onUpdate }) {
             {bucket.map((p) => (
               <div key={p.id}
                 draggable={canEdit}
-                onDragStart={() => { if (canEdit) setDragId(p.id); }}
+                onDragStart={(e) => { if (canEdit) { setDragId(p.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", p.id); } }}
                 onDragEnd={() => setDragId(null)}
                 style={{ display: "flex", alignItems: "center", gap: 7, background: T.bg, border: `1px solid ${dragId === p.id ? T.brass : T.line}`, borderRadius: 7, padding: "6px 9px", cursor: canEdit ? "grab" : "default", fontSize: 12.5, marginBottom: 6 }}>
                 {canEdit && <GripVertical size={12} color={T.textDim} />}
