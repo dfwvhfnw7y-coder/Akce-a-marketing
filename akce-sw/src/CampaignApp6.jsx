@@ -13,12 +13,25 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.7";
-const APP_BUILD = "2026-07-03 09:31";
+const APP_VERSION = "0.8";
+const APP_BUILD = "2026-07-03 20:18";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.8",
+    date: "3. 7. 2026",
+    title: "Potvrzení účasti, divize a přiřazování",
+    items: [
+      "✅ Nový blok „Potvrdit účast\" v pozvánce — zákazník jím potvrdí, že přijde (proměnná {{potvrdit_odkaz}}).",
+      "🏢 Divize u zákazníka — automaticky se převezme z oddělení prodejce, který ho přidal. Zobrazuje se štítky u zákazníka i v panelu schvalování.",
+      "👥 Prodejce může být ve více divizích (např. OA i TRAPO) — nastavíš v kartě uživatele.",
+      "🎯 Přiřazení zákazníka prodejci — schvalovatel/vedení přiřadí zákazníka konkrétnímu prodejci (v seznamu účastníků i v panelu schvalování).",
+      "🔒 Prodejce vidí všechny zákazníky, ale edituje jen ty, které založil nebo mu byli přiřazeni.",
+      "🧹 Odstraněno napojení na Bizmachine.",
+    ],
+  },
   {
     version: "0.7",
     date: "3. 7. 2026",
@@ -92,10 +105,10 @@ const USERS_SEED = [
   { id: "u2", name: "Tereza Machová",  email: "t.machova@sw-automobily.cz", phone: "+420 602 100 002", role: "approver", position: "Marketing manager",  active: true,  approverId: "tereza" },
   { id: "u3", name: "Matej Bugár",     email: "m.bugar@sw-automobily.cz",   phone: "+420 602 100 003", role: "approver", position: "Vedoucí prodeje nákladních vozidel", active: true,  approverId: "matej"  },
   { id: "u4", name: "Pavel Balog",     email: "p.balog@sw-automobily.cz",   phone: "+420 602 100 004", role: "approver", position: "Vedoucí prodeje osobních a užitkových vozů", active: true,  approverId: "pavel"  },
-  { id: "u5", name: "Martin Dvořák",   email: "m.dvorak@sw-automobily.cz",  phone: "+420 602 100 005", role: "lite",     position: "Obchodní zástupce",  dept: "OA (osobní vozy)",        active: true,  approverId: null     },
-  { id: "u6", name: "Jana Procházková",email: "j.prochazkova@sw-automobily.cz",phone:"+420 602 100 006",role:"lite",     position: "Obchodní zástupce",  dept: "Servis",                  active: true,  approverId: null     },
-  { id: "u8", name: "Petr Kučera",     email: "p.kucera@sw-automobily.cz",  phone: "+420 602 100 008", role: "lite",     position: "Obchodní zástupce LKW", dept: "LKW (nákladní)",        active: true,  approverId: null     },
-  { id: "u9", name: "Ondřej Novotný",  email: "o.novotny@sw-automobily.cz", phone: "+420 602 100 009", role: "lite",     position: "Obchodní zástupce TRAPO", dept: "TRAPO",                active: true,  approverId: null     },
+  { id: "u5", name: "Martin Dvořák",   email: "m.dvorak@sw-automobily.cz",  phone: "+420 602 100 005", role: "lite",     position: "Obchodní zástupce",  dept: "OA (osobní vozy)",        depts: ["OA", "TRAPO"], active: true,  approverId: null     },
+  { id: "u6", name: "Jana Procházková",email: "j.prochazkova@sw-automobily.cz",phone:"+420 602 100 006",role:"lite",     position: "Obchodní zástupce",  dept: "Servis",                  depts: ["Servis"], active: true,  approverId: null     },
+  { id: "u8", name: "Petr Kučera",     email: "p.kucera@sw-automobily.cz",  phone: "+420 602 100 008", role: "lite",     position: "Obchodní zástupce LKW", dept: "LKW (nákladní)",        depts: ["LKW"], active: true,  approverId: null     },
+  { id: "u9", name: "Ondřej Novotný",  email: "o.novotny@sw-automobily.cz", phone: "+420 602 100 009", role: "lite",     position: "Obchodní zástupce TRAPO", dept: "TRAPO",                depts: ["TRAPO"], active: true,  approverId: null     },
   { id: "u7", name: "Lucie Hosteska",  email: "l.hosteska@sw-automobily.cz",phone: "+420 602 100 007", role: "hosteska", position: "Hosteska / asistentka",active: true, approverId: null    },
 ];
 const initUsers = () => USERS_SEED;
@@ -190,6 +203,11 @@ const EVENT_DEPTS = [
   { id: "Marketing", label: "Marketing" },
 ];
 const eventDeptLabel = (id) => EVENT_DEPTS.find((d) => d.id === id)?.label || id;
+// divize zákazníka = divize toho, kdo ho přidal (nebo komu je přiřazen)
+const partDivisions = (p) => {
+  const ids = (p.addedBy?.depts && p.addedBy.depts.length) ? p.addedBy.depts : [];
+  return ids;
+};
 
 const ACTIVITY_TYPES = [
   { id: "golf",      label: "⛳ Golf",            hasStartList: true  },
@@ -229,10 +247,22 @@ const baseFields = () => [
 const seed = () => {
   const f1 = baseFields();
   const hcpId = uid();
-  const mk = (n, e, p, st, note = "", hcp = "", grp = null, eq = {}, crm = {}, addedBy = null) => ({
-    id: uid(), state: st, note, flight: null, hcp, group: grp, eqChoice: eq, crm, addedBy,
-    data: { [f1[0].id]: n, [f1[1].id]: e, [f1[2].id]: p },
-  });
+  const mk = (n, e, p, st, note = "", hcp = "", grp = null, eq = {}, crm = {}, addedBy = null) => {
+    // dohledej prodejce podle jména v addedBy a doplň userId + divize
+    let enrichedAddedBy = addedBy;
+    let assignedTo = null;
+    if (addedBy?.name) {
+      const u = USERS_SEED.find(x => x.name === addedBy.name);
+      if (u) {
+        enrichedAddedBy = { ...addedBy, userId: u.id, depts: u.depts || [] };
+        assignedTo = u.id;
+      }
+    }
+    return {
+      id: uid(), state: st, note, flight: null, hcp, group: grp, eqChoice: eq, crm, addedBy: enrichedAddedBy, assignedTo,
+      data: { [f1[0].id]: n, [f1[1].id]: e, [f1[2].id]: p },
+    };
+  };
   const golf = {
     id: uid(), name: "Golfový den", date: "2026-06-20", place: "Karlštejn",
     capacity: 12, owner: "me", activityType: "golf", approver: "mira",
@@ -271,6 +301,7 @@ const seed = () => {
         { id: "b5", type: "divider" },
         { id: "b6", type: "text",      content: "Dress code: golfový oděv, kolíkové boty povinné.", align: "left", bold: false, size: 13, color: "#c8c4b4" },
         { id: "b7", type: "button",    label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#c8a044" },
+        { id: "b7c", type: "confirm",  label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" },
         { id: "b8", type: "link",      label: "📸 Fotky z loňského golfového dne", url: "", italic: true },
       ],
     },
@@ -338,7 +369,7 @@ const seed = () => {
     leads: [],
     needs: { items: [] },
     team: { members: [], teamsUrl: "", multiDay: false },
-    invite: { bgColor: "#2a1a3a", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [{ id: "w1", type: "header", content: "Degustace vín S&W", align: "center", bold: true, size: 20, color: "#f2ede0" }, { id: "w2", type: "text", content: "Vážený/á {{jmeno}},\n\nzveme Vás na exkluzivní degustaci.", align: "left", bold: false, size: 14, color: "#e4e8de" }, { id: "w3", type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] }, { id: "w4", type: "button", label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#9068c8" }] },
+    invite: { bgColor: "#2a1a3a", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [{ id: "w1", type: "header", content: "Degustace vín S&W", align: "center", bold: true, size: 20, color: "#f2ede0" }, { id: "w2", type: "text", content: "Vážený/á {{jmeno}},\n\nzveme Vás na exkluzivní degustaci.", align: "left", bold: false, size: 14, color: "#e4e8de" }, { id: "w3", type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] }, { id: "w4", type: "button", label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#9068c8" }, { id: "w4c", type: "confirm", label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" }] },
     inviteMode: "batch",
     inviteTemplate: "",
     reminders: { r0: true, r7: true, r1: true, rCustom: [], rAfter1: true },
@@ -1167,7 +1198,7 @@ function CreateWizard({ onClose, onCreate, editCampaign }) {
       leads: [],
       needs: { items: [] },
       team: { members: [], teamsUrl: "", multiDay: false },
-      invite: { bgColor: "#1a3d24", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [{ id: uid(), type: "text", content: "Vážený/á {{jmeno}},\n\nsrdečně Vás zveme na {{nazev_akce}}.", align: "left", bold: false, size: 14, color: "#e4e8de" }, { id: uid(), type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] }, { id: uid(), type: "button", label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#c8a044" }] },
+      invite: { bgColor: "#1a3d24", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [{ id: uid(), type: "text", content: "Vážený/á {{jmeno}},\n\nsrdečně Vás zveme na {{nazev_akce}}.", align: "left", bold: false, size: 14, color: "#e4e8de" }, { id: uid(), type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] }, { id: uid(), type: "button", label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#c8a044" }, { id: uid(), type: "confirm", label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" }] },
       survey: { fields: [], responses: [], sent: false, sentAt: null },
       budget: { eventBudget: 0, items: [] },
     });
@@ -1560,7 +1591,8 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
     }
     setDupErr("");
     const adderUser = USERS_SEED.find(u => u.role === role) || null;
-    onUpdate((camp) => ({ ...camp, parts: [...camp.parts, { id: uid(), state: "ceka", note: `Přidal: ${role}`, addedBy: { name: adderUser?.name || role, dept: adderUser?.dept || "", role: adderUser?.role || role }, flight: null, hcp: "", group: null, eqChoice, crm: {}, customerInfo, data }] }));
+    const adderDepts = adderUser?.depts && adderUser.depts.length ? adderUser.depts : [];
+    onUpdate((camp) => ({ ...camp, parts: [...camp.parts, { id: uid(), state: "ceka", note: `Přidal: ${role}`, addedBy: { userId: adderUser?.id || null, name: adderUser?.name || role, dept: adderUser?.dept || "", depts: adderDepts, role: adderUser?.role || role }, assignedTo: adderUser?.id || null, flight: null, hcp: "", group: null, eqChoice, crm: {}, customerInfo, data }] }));
     return true;
   };
 
@@ -1595,6 +1627,9 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
   const setCrm   = (pid, crm)  => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, crm } : p) }));
   const setGroup = (pid, gid)  => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, group: gid } : p) }));
   const remove   = (pid) => onUpdate((camp) => ({ ...camp, parts: camp.parts.filter((p) => p.id !== pid) }));
+  const assign   = (pid, uid2) => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, assignedTo: uid2 || null } : p) }));
+  const currentUser = USERS_SEED.find(u => u.role === role) || null;
+  const currentUserId = currentUser?.id || null;
 
   if (blocked) {
     return (
@@ -1669,14 +1704,21 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
                     <span style={{ fontSize: 11, color: T.textDim }}>IČO: <b style={{ color: T.cream, fontFamily: "monospace" }}>{p.customerInfo.ico}</b></span>
                     {(() => { const adder = USERS_SEED.find(u => (p.note||"").includes(u.name)); return adder?.dept ? <span style={{ fontSize: 11, color: T.brass, marginLeft: 6 }}>Zadal: {adder.name} | {adder.dept}</span> : null; })()}
-                    <a href={"https://app.bizmachine.com/search?q=" + p.customerInfo.ico} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.brass, border: `1px solid ${T.brass}44`, borderRadius: 5, padding: "1px 7px", textDecoration: "none" }}>🔍 Bizmachine</a>
                   </div>
                 )}
                 {p.customerInfo?.type === "fo" && (
                   <span style={{ fontSize: 10.5, color: T.info, marginTop: 3, display: "inline-block" }}>👤 Fyzická osoba</span>
                 )}
+                {(p.addedBy?.depts || []).length > 0 && (
+                  <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                    {p.addedBy.depts.map(id => <span key={id} style={{ fontSize: 10, fontWeight: 600, color: T.brass, background: `${T.brass}18`, border: `1px solid ${T.brass}44`, borderRadius: 5, padding: "1px 6px" }}>{id}</span>)}
+                  </div>
+                )}
               </div>
-              <a href={"https://app.bizmachine.com/search?q=" + encodeURIComponent(p.data[emailId] || p.data[nameId] || "")} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.brass, border: `1px solid ${T.brass}44`, borderRadius: 7, padding: "5px 10px", textDecoration: "none", background: `${T.brass}0f`, display: "inline-flex", alignItems: "center", gap: 5 }}>🔍 Bizmachine</a>
+              <select value={p.assignedTo || ""} onChange={(e) => assign(p.id, e.target.value)} style={{ ...inputStyle, padding: "6px 8px", fontSize: 11.5, width: 160 }} title="Přiřadit prodejci">
+                <option value="">— přiřadit prodejci —</option>
+                {USERS_SEED.filter(u => u.role === "lite" && u.active).map(s => <option key={s.id} value={s.id}>{s.name}{s.depts?.length ? ` (${s.depts.join("/")})` : ""}</option>)}
+              </select>
               <Btn kind="green" icon={Send} small onClick={() => approve(p.id)}>Schválit a pozvat</Btn>
               <Btn kind="danger" small onClick={() => reject(p.id)}>Zamítnout</Btn>
             </div>
@@ -1700,7 +1742,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
         )}
       </div>
 
-      {tab === "list"   && <ParticipantList c={c} role={role} crossMap={crossMap} full={full} isGolf={isGolf} canEdit={canEdit} nameId={nameId} emailId={emailId} phoneId={phoneId} dupErr={dupErr} setState={setState} setNote={setNote} setGroup={setGroup} setCrm={setCrm} remove={remove} canApprove={canApprove} onAddOpen={() => setAdding(true)} onSendBatch={sendBatchInvites} onResend={resendInvite} inviteMode={c.inviteMode} />}
+      {tab === "list"   && <ParticipantList c={c} role={role} crossMap={crossMap} full={full} isGolf={isGolf} canEdit={canEdit} nameId={nameId} emailId={emailId} phoneId={phoneId} dupErr={dupErr} setState={setState} setNote={setNote} setGroup={setGroup} setCrm={setCrm} remove={remove} canApprove={canApprove} onAddOpen={() => setAdding(true)} onSendBatch={sendBatchInvites} onResend={resendInvite} inviteMode={c.inviteMode} assign={assign} currentUserId={currentUserId} />}
       {tab === "groups" && <GroupsTab c={c} canEdit={canEdit} nameId={nameId} onUpdate={onUpdate} setGroup={setGroup} />}
       {tab === "needs"  && <NeedsTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
       {tab === "team"   && <TeamTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
@@ -1721,9 +1763,16 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
 /* ════════════════════════════════════════
    ÚČASTNÍCI
 ════════════════════════════════════════ */
-function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, emailId, phoneId, dupErr, setState, setNote, setGroup, setCrm, remove, canApprove, onAddOpen, onSendBatch, onResend, inviteMode }) {
+function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, emailId, phoneId, dupErr, setState, setNote, setGroup, setCrm, remove, canApprove, onAddOpen, onSendBatch, onResend, inviteMode, assign, currentUserId }) {
   const [expandedCrm, setExpandedCrm] = useState(null);
   const [statusModal, setStatusModal] = useState(false);
+  const sellers = USERS_SEED.filter(u => u.role === "lite" && u.active);
+  const canAssign = role === "admin" || role === "approver";
+  // prodejce edituje jen zákazníky, které založil, nebo které mu přiřadili
+  const canEditPart = (p) => {
+    if (role !== "lite") return canEdit;
+    return p.addedBy?.userId === currentUserId || p.assignedTo === currentUserId;
+  };
 
   const toggleCrm = (pid) => setExpandedCrm(prev => prev === pid ? null : pid);
 
@@ -1771,10 +1820,20 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                   {crm.category && <span style={{ fontSize: 11, color: T.info, background: `${T.info}12`, border: `1px solid ${T.info}33`, padding: "2px 7px", borderRadius: 8, whiteSpace: "nowrap" }}>{crm.category}</span>}
                   {isGolf && p.hcp && <span style={{ fontSize: 11, color: T.brass }}>HCP {p.hcp}</span>}
                   {p.addedBy?.name && <span style={{ fontSize: 11, color: T.textDim }}>↳ {p.addedBy.name}{p.addedBy.dept ? ` | ${p.addedBy.dept}` : ""}</span>}
+                  {partDivisions(p).map(id => (
+                    <span key={id} style={{ fontSize: 10, fontWeight: 600, color: T.brass, background: `${T.brass}18`, border: `1px solid ${T.brass}44`, borderRadius: 5, padding: "1px 6px" }}>{id}</span>
+                  ))}
+                  {p.assignedTo && (() => { const asg = USERS_SEED.find(u => u.id === p.assignedTo); return asg ? <span style={{ fontSize: 10.5, color: T.info, background: `${T.info}15`, border: `1px solid ${T.info}44`, borderRadius: 5, padding: "1px 6px" }}>👤 {asg.name}</span> : null; })()}
                 </div>
                 {/* stav + akce — pevná šířka aby bylo vždy zarovnané */}
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                  <select value={p.state} onChange={(e) => setState(p.id, e.target.value)} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, width: 148 }} disabled={role === "lite"}>
+                  {canAssign && (
+                    <select value={p.assignedTo || ""} onChange={(e) => assign(p.id, e.target.value)} style={{ ...inputStyle, padding: "5px 8px", fontSize: 11.5, width: 150 }} title="Přiřadit prodejci">
+                      <option value="">— přiřadit prodejci —</option>
+                      {sellers.map(s => <option key={s.id} value={s.id}>{s.name}{s.depts?.length ? ` (${s.depts.join("/")})` : ""}</option>)}
+                    </select>
+                  )}
+                  <select value={p.state} onChange={(e) => setState(p.id, e.target.value)} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, width: 148 }} disabled={!canEditPart(p)}>
                     {STATE_ORDER.filter((s) => !(role === "lite" && s === "ceka")).map((s) => <option key={s} value={s}>{STATES[s].label}</option>)}
                   </select>
                   {/* vždy rezervované místo pro ✉ tlačítko */}
@@ -1787,7 +1846,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                   </div>
                   {/* vždy rezervované místo pro 🗑 tlačítko */}
                   <div style={{ width: 24, display: "flex", justifyContent: "center" }}>
-                    {canEdit && <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger, padding: "2px" }}><Trash2 size={14} /></button>}
+                    {canEditPart(p) && <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger, padding: "2px" }}><Trash2 size={14} /></button>}
                   </div>
                 </div>
               </div>
@@ -2037,6 +2096,7 @@ const BLOCK_TYPES = [
   { id: "text",     icon: "¶",  label: "Odstavec" },
   { id: "image",    icon: "🖼", label: "Obrázek" },
   { id: "infobox",  icon: "ℹ", label: "Info box" },
+  { id: "confirm",  icon: "✅", label: "Potvrdit účast" },
   { id: "button",   icon: "⬤",  label: "Tlačítko" },
   { id: "link",     icon: "🔗", label: "Odkaz / video" },
   { id: "divider",  icon: "—",  label: "Oddělovač" },
@@ -2044,7 +2104,7 @@ const BLOCK_TYPES = [
 
 const TPL_VARS = [
   "{{jmeno}}", "{{prijmeni}}", "{{nazev_akce}}", "{{datum}}",
-  "{{misto}}", "{{flight_cas}}", "{{dress_code}}", "{{organizator_tel}}", "{{kalendar_odkaz}}",
+  "{{misto}}", "{{flight_cas}}", "{{dress_code}}", "{{organizator_tel}}", "{{kalendar_odkaz}}", "{{potvrdit_odkaz}}",
 ];
 
 const COLORS_PALETTE = [
@@ -2061,7 +2121,7 @@ function fillInviteVars(str, c) {
     .replace(/\{\{nazev_akce\}\}/g, c.name || "").replace(/\{\{datum\}\}/g, dstr)
     .replace(/\{\{misto\}\}/g, c.place || "").replace(/\{\{flight_cas\}\}/g, c.startTime || "")
     .replace(/\{\{dress_code\}\}/g, "Smart casual").replace(/\{\{organizator_tel\}\}/g, org?.phone || "")
-    .replace(/\{\{kalendar_odkaz\}\}/g, "#");
+    .replace(/\{\{kalendar_odkaz\}\}/g, "#").replace(/\{\{potvrdit_odkaz\}\}/g, "#");
 }
 const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -2074,6 +2134,7 @@ function printInviteA4(c, invite) {
     if (b.type === "image")   return b.url ? `<img src="${b.url}" style="width:100%;border-radius:9px;margin-bottom:18px;display:block" />` : "";
     if (b.type === "infobox") return `<div style="background:rgba(255,255,255,.10);border-radius:12px;padding:16px 20px;margin-bottom:18px">${(b.items||[]).map(it => `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;font-size:16px"><span style="font-size:20px;min-width:28px">${it.icon||""}</span><span style="color:rgba(255,255,255,.55);min-width:70px">${esc(it.label)}:</span><span style="color:#f2ede0;font-weight:600">${esc(fillInviteVars(it.value, c))}</span></div>`).join("")}</div>`;
     if (b.type === "button")  return `<div style="text-align:center;margin-bottom:18px"><span style="display:inline-block;background:${b.color};color:#1a1a1a;padding:12px 30px;border-radius:9px;font-weight:700;font-size:16px">${esc(b.label)}</span></div>`;
+    if (b.type === "confirm") return `<div style="text-align:center;margin-bottom:18px"><span style="display:inline-block;background:${b.color || "#2e7d54"};color:#ffffff;padding:14px 38px;border-radius:9px;font-weight:700;font-size:17px">${esc(b.label || "✅ Potvrdit účast")}</span></div>`;
     if (b.type === "link")    return `<div style="text-align:center;margin-bottom:16px"><span style="color:#c8a044;text-decoration:underline;font-style:${b.italic?"italic":"normal"}">${esc(b.label)}</span></div>`;
     return "";
   }).join("");
@@ -2112,6 +2173,7 @@ function InviteTab({ c, canEdit, onUpdate }) {
       image:   { url: "", alt: "", file: null },
       infobox: { items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] },
       button:  { label: "Přidat do kalendáře", url: "{{kalendar_odkaz}}", color: "#c8a044" },
+      confirm: { label: "✅ Potvrdit účast", url: "{{potvrdit_odkaz}}", color: "#2e7d54" },
       link:    { label: "Odkaz", url: "", italic: false },
       divider: {},
     };
@@ -2306,10 +2368,11 @@ function InviteTab({ c, canEdit, onUpdate }) {
                             <button onClick={() => updBlock(block.id, { items: [...block.items, { icon: "📌", label: "", value: "" }] })} style={{ background: "none", border: `1px dashed ${T.brass}55`, borderRadius: 7, padding: "4px 10px", cursor: "pointer", color: T.brass, fontSize: 12, fontFamily: "inherit" }}>+ Přidat řádek</button>
                           </>
                         )}
-                        {block.type === "button" && (
+                        {(block.type === "button" || block.type === "confirm") && (
                           <>
+                            {block.type === "confirm" && <div style={{ fontSize: 11.5, color: T.greenLite, marginBottom: 8, lineHeight: 1.5 }}>✅ Tlačítko pro potvrzení účasti. Zákazník jím potvrdí, že přijde. Odkaz {"{{potvrdit_odkaz}}"} se doplní automaticky po napojení potvrzovacích linků.</div>}
                             <FRow label="Text tlačítka"><input value={block.label} onChange={(e) => updBlock(block.id, { label: e.target.value })} style={{ ...inputStyle, padding: "5px 8px" }} /></FRow>
-                            <FRow label={"URL nebo proměnná ({{kalendar_odkaz}})"} ><input value={block.url} onChange={(e) => updBlock(block.id, { url: e.target.value })} placeholder={"https:// nebo {{kalendar_odkaz}}"} style={{ ...inputStyle, padding: "5px 8px", fontFamily: "monospace", fontSize: 12 }} /></FRow>
+                            <FRow label={block.type === "confirm" ? "URL nebo proměnná ({{potvrdit_odkaz}})" : "URL nebo proměnná ({{kalendar_odkaz}})"} ><input value={block.url} onChange={(e) => updBlock(block.id, { url: e.target.value })} placeholder={block.type === "confirm" ? "https:// nebo {{potvrdit_odkaz}}" : "https:// nebo {{kalendar_odkaz}}"} style={{ ...inputStyle, padding: "5px 8px", fontFamily: "monospace", fontSize: 12 }} /></FRow>
                             <div>
                               <label style={lbl}>Barva tlačítka</label>
                               <div style={{ display: "flex", gap: 4 }}>
@@ -2404,6 +2467,11 @@ function InviteTab({ c, canEdit, onUpdate }) {
                 if (block.type === "button") return (
                   <div key={block.id} style={{ textAlign: "center", marginBottom: 14 }}>
                     <span style={{ display: "inline-block", background: block.color, color: "#1a1a1a", padding: "10px 24px", borderRadius: 9, fontWeight: 700, fontSize: invite.fontSize, cursor: "pointer" }}>{block.label}</span>
+                  </div>
+                );
+                if (block.type === "confirm") return (
+                  <div key={block.id} style={{ textAlign: "center", marginBottom: 14 }}>
+                    <span style={{ display: "inline-block", background: block.color || "#2e7d54", color: "#ffffff", padding: "12px 32px", borderRadius: 9, fontWeight: 700, fontSize: invite.fontSize + 1, cursor: "pointer" }}>{block.label || "✅ Potvrdit účast"}</span>
                   </div>
                 );
                 if (block.type === "link") return (
@@ -3053,7 +3121,7 @@ function AddUserModal({ users, onClose, onAdd }) {
           </FRow>
           <FRow label="Pozice ve firmě *"><input style={inputStyle} value={f.position} onChange={e => setF({...f, position: e.target.value})} placeholder="Obchodní zástupce" /></FRow>
         </div>
-        <FRow label="Oddělení">
+        <FRow label="Hlavní oddělení">
           <input
             style={inputStyle}
             value={f.dept || ""}
@@ -3064,6 +3132,20 @@ function AddUserModal({ users, onClose, onAdd }) {
           <datalist id="dept-list">
             {[...new Set(users.filter(u => u.dept).map(u => u.dept))].map(d => <option key={d} value={d} />)}
           </datalist>
+        </FRow>
+        <FRow label="Divize (zákazník od tohoto prodejce se zařadí do těchto divizí)">
+          <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>Prodejce může patřit do více divizí (např. OA i TRAPO).</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {EVENT_DEPTS.map(d => {
+              const on = (f.depts || []).includes(d.id);
+              return (
+                <label key={d.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: on ? `${T.brass}18` : T.bg, border: `1px solid ${on ? T.brass : T.line}`, borderRadius: 8, cursor: "pointer" }}>
+                  <input type="checkbox" checked={on} onChange={e => { const cur = f.depts || []; setF({...f, depts: e.target.checked ? [...cur, d.id] : cur.filter(x => x !== d.id)}); }} />
+                  <span style={{ fontSize: 12.5, fontWeight: on ? 600 : 400, color: on ? T.cream : T.textDim }}>{d.label}</span>
+                </label>
+              );
+            })}
+          </div>
         </FRow>
         <div style={{ background: `${T.info}15`, border: `1px solid ${T.info}44`, borderRadius: 8, padding: "9px 12px", fontSize: 12, color: T.creamDim, marginBottom: 14, lineHeight: 1.7 }}>
           📧 Po uložení se uživateli odešle e-mail s odkazem pro nastavení hesla. Přihlásí se pomocí e-mailu a hesla.
@@ -3170,13 +3252,6 @@ function LeadsTab({ c, role, onUpdate }) {
                       ) : assignedUser ? (
                         <span style={{ fontSize: 11.5, color: T.info }}>→ {assignedUser.name}</span>
                       ) : null}
-                      {(role === "admin" || role === "approver") && (
-                        <a
-                          href={"https://app.bizmachine.com/search?q=" + encodeURIComponent(lead.name)}
-                          target="_blank" rel="noreferrer"
-                          style={{ fontSize: 11.5, color: T.brass, border: `1px solid ${T.brass}44`, borderRadius: 6, padding: "2px 9px", textDecoration: "none", background: `${T.brass}0f` }}
-                        >🔍 Bizmachine</a>
-                      )}
                     </div>
                   </div>
                   {canEdit && (
@@ -3901,7 +3976,6 @@ function AddModal({ fields, fieldMeta, full, crossMap, campEquipment, onClose, o
   const others = email ? (crossMap[email] || []) : [];
 
   const icoValid = ico.trim().length === 8 && /^\d{8}$/.test(ico.trim());
-  const bizUrl   = ico.trim() ? `https://app.bizmachine.com/search?q=${ico.trim()}` : null;
 
   const submit = () => {
     const e = {};
@@ -3937,7 +4011,7 @@ function AddModal({ fields, fieldMeta, full, crossMap, campEquipment, onClose, o
         </div>
         {icoType === "po" && (
           <div>
-            <label style={lbl}>IČO <span style={{ color: T.textDim, fontWeight: 400 }}>(nepovinné — umožní prověření přes Bizmachine)</span></label>
+            <label style={lbl}>IČO <span style={{ color: T.textDim, fontWeight: 400 }}>(nepovinné)</span></label>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <input
                 value={ico}
@@ -3946,16 +4020,6 @@ function AddModal({ fields, fieldMeta, full, crossMap, campEquipment, onClose, o
                 maxLength={8}
                 style={{ ...inputStyle, flex: 1, fontFamily: "monospace", letterSpacing: 2 }}
               />
-              {bizUrl && icoValid ? (
-                <a href={bizUrl} target="_blank" rel="noreferrer"
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 13px", background: `${T.brass}18`, border: `1px solid ${T.brass}55`, borderRadius: 8, color: T.brass, fontSize: 13, fontWeight: 500, textDecoration: "none", whiteSpace: "nowrap" }}>
-                  🔍 Prověřit v Bizmachine
-                </a>
-              ) : (
-                <div style={{ padding: "9px 13px", background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, color: T.textDim, fontSize: 13, whiteSpace: "nowrap" }}>
-                  🔍 Bizmachine
-                </div>
-              )}
             </div>
             {icoErr && <div style={{ color: T.danger, fontSize: 11, marginTop: 3 }}>{icoErr}</div>}
             {ico.length > 0 && ico.length < 8 && <div style={{ color: T.textDim, fontSize: 11, marginTop: 3 }}>Zadejte všech 8 číslic</div>}
