@@ -14,7 +14,7 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.7";
-const APP_BUILD = "2026-07-03 09:11";
+const APP_BUILD = "2026-07-03 09:24";
 
 /* ── tokeny ── */
 const T = {
@@ -582,7 +582,7 @@ export default function App() {
         )}
       </main>
       {showUsers && <UsersModal users={users} onClose={() => setShowUsers(false)} onUpdate={setUsers} />}
-      {editCampaign && <EditCampaignModal c={editCampaign} onClose={() => setEditCampaign(null)} onSave={(updated) => { update(updated.id, () => updated); setEditCampaign(null); }} />}
+      {editCampaign && <CreateWizard editCampaign={editCampaign} onClose={() => setEditCampaign(null)} onCreate={(updated) => { update(updated.id, () => updated); setEditCampaign(null); }} />}
     </div>
   );
 }
@@ -1005,28 +1005,39 @@ function AnnualModal({ onClose, budget, onChange, campaigns, totalExpected, tota
    WIZARD NOVÉ KAMPANĚ (3 kroky)
 ════════════════════════════════════════ */
 
-function CreateWizard({ onClose, onCreate }) {
+function CreateWizard({ onClose, onCreate, editCampaign }) {
+  const isEdit = !!editCampaign;
+  const ec = editCampaign || {};
+  const partCount = (ec.parts || []).length;
+  const hasParts = partCount > 0;
+
   const [step, setStep] = useState(1);
   const TOTAL_STEPS = 5;
 
   const [fieldTarget, setFieldTarget] = useState('customer');
   const [info, setInfo] = useState({
-    name: "", date: "", place: "", capacity: 12,
-    activityType: "golf", customType: "", approvers: ["mira"], departments: [], notes: "",
+    name: ec.name || "", date: ec.date ? ec.date.slice(0,10) : "", place: ec.place || "", capacity: ec.capacity || 12,
+    activityType: ec.activityType || "golf", customType: ec.customType || "", approvers: ec.approvers || (ec.approver ? [ec.approver] : ["mira"]), departments: ec.departments || [], notes: ec.notes || "",
   });
-  const [fields,      setFields]      = useState(baseFields());
-  const [equipment,   setEquipment]   = useState([]);
-  const [reminders,   setReminders]   = useState({ r0: true, r14: true, r7: true, r1: true, rCustom: [], rAfter1: true });
-  const [inviteMode,  setInviteMode]  = useState("batch");
-  const [inviteTpl,   setInviteTpl]   = useState("Vážený/á {{jmeno}},\n\nsrdečně Vás zveme na {{nazev_akce}}, která se koná {{datum}} v {{misto}}.\n\n{{program}}\n\nDress code: {{dress_code}}\n\nTěšíme se na Vás!\nTým S&W automobily");
-  const [golfStart,   setGolfStart]   = useState("interval"); // "interval" | "canon"
-  const [participation, setParticipation] = useState({ enabled: false, basePrice: 0, items: [] });
+  const [fields,      setFields]      = useState(ec.fields || baseFields());
+  const [equipment,   setEquipment]   = useState(ec.equipment || []);
+  const [reminders,   setReminders]   = useState(ec.reminders || { r0: true, r14: true, r7: true, r1: true, rCustom: [], rAfter1: true });
+  const [inviteMode,  setInviteMode]  = useState(ec.inviteMode || "batch");
+  const [inviteTpl,   setInviteTpl]   = useState(ec.inviteTemplate || "Vážený/á {{jmeno}},\n\nsrdečně Vás zveme na {{nazev_akce}}, která se koná {{datum}} v {{misto}}.\n\n{{program}}\n\nDress code: {{dress_code}}\n\nTěšíme se na Vás!\nTým S&W automobily");
+  const [golfStart,   setGolfStart]   = useState(ec.golfStartType || "interval"); // "interval" | "canon"
+  const [participation, setParticipation] = useState(ec.participation || { enabled: false, basePrice: 0, items: [] });
 
   const isGolf = info.activityType === "golf";
 
   const addF = (type) => setFields((f) => [...f, { id: uid(), type, label: "", required: false, options: "", target: fieldTarget }]);
   const updF = (id, p) => setFields((f) => f.map((x) => x.id === id ? { ...x, ...p } : x));
-  const delF = (id) => setFields((f) => f.filter((x) => x.id !== id));
+  const delF = (id) => {
+    if (isEdit && hasParts) {
+      const used = (ec.parts || []).some(p => p.data && p.data[id] != null && p.data[id] !== "");
+      if (used && !window.confirm("Toto pole už má vyplněná data u přihlášených zákazníků. Smazáním se tato data ztratí (osiří). Opravdu smazat?")) return;
+    }
+    setFields((f) => f.filter((x) => x.id !== id));
+  };
 
   const togglePreset = (presetId) => {
     setEquipment((eq) =>
@@ -1037,7 +1048,13 @@ function CreateWizard({ onClose, onCreate }) {
   };
   const addCustomEq = () => setEquipment((eq) => [...eq, { id: uid(), presetId: null, label: "", rentPrice: null, ourCost: null, custom: true }]);
   const updEq = (id, patch) => setEquipment((eq) => eq.map((e) => e.id === id ? { ...e, ...patch } : e));
-  const delEq = (id) => setEquipment((eq) => eq.filter((e) => e.id !== id));
+  const delEq = (id) => {
+    if (isEdit && hasParts) {
+      const used = (ec.parts || []).some(p => p.eqChoice && p.eqChoice[id]);
+      if (used && !window.confirm("Tuto volbu vybavení si už zvolil někdo z přihlášených. Smazáním se jeho volba ztratí. Opravdu smazat?")) return;
+    }
+    setEquipment((eq) => eq.filter((e) => e.id !== id));
+  };
 
   const addPartItem = () => setParticipation((p) => ({ ...p, items: [...p.items, { id: uid(), label: "", price: 0 }] }));
   const updPartItem = (id, patch) => setParticipation((p) => ({ ...p, items: p.items.map((i) => i.id === id ? { ...i, ...patch } : i) }));
@@ -1058,6 +1075,22 @@ function CreateWizard({ onClose, onCreate }) {
     const emailId = fields.find((f) => f.type === "email")?.id;
     const phoneId = fields.find((f) => f.type === "phone")?.id;
     const hcpId   = fields.find((f) => f.label.toLowerCase().includes("hcp") || f.label.toLowerCase().includes("handicap"))?.id;
+
+    if (isEdit) {
+      // zachovej všechna existující data akce, aktualizuj jen editované části
+      onCreate({
+        ...ec,
+        ...info,
+        approver: (info.approvers || [])[0] || "mira",
+        fields, equipment,
+        fieldMeta: { ...(ec.fieldMeta || {}), nameId, emailId, phoneId, hcpId },
+        inviteMode, inviteTemplate: inviteTpl,
+        reminders, golfStartType: golfStart,
+        participation,
+      });
+      return;
+    }
+
     onCreate({
       id: uid(), ...info, approver: (info.approvers||[])[0] || "mira", owner: "me", fields, parts: [], groups: [], equipment,
       fieldMeta: { nameId, emailId, phoneId, hcpId },
@@ -1077,7 +1110,7 @@ function CreateWizard({ onClose, onCreate }) {
   const stepLabel = ["Základní údaje", "Pole formuláře", "Vybavení & participace", "Pozvánka & připomínky", "Shrnutí"];
 
   return (
-    <Modal title={`Nová akce · krok ${step}/${TOTAL_STEPS}`} onClose={onClose} wide>
+    <Modal title={isEdit ? `Upravit akci · krok ${step}/${TOTAL_STEPS}` : `Nová akce · krok ${step}/${TOTAL_STEPS}`} onClose={onClose} wide>
       {/* wizard steps indicator */}
       <div style={{ display: "flex", marginBottom: 20, borderBottom: `1px solid ${T.line}`, paddingBottom: 12 }}>
         {stepLabel.map((l, i) => (
@@ -1166,6 +1199,11 @@ function CreateWizard({ onClose, onCreate }) {
       {/* ── KROK 2 — pole formuláře ── */}
       {step === 2 && (
         <>
+          {isEdit && hasParts && (
+            <div style={{ background: `${T.brass}14`, border: `1px solid ${T.brass}55`, borderRadius: 9, padding: "9px 13px", marginBottom: 12, fontSize: 12, color: T.cream, lineHeight: 1.6 }}>
+              ⚠️ Akce už má <b>{partCount}</b> {partCount === 1 ? "přihlášeného zákazníka" : partCount < 5 ? "přihlášené zákazníky" : "přihlášených zákazníků"}. Přidávat a přejmenovávat pole je bezpečné. Mazání pole s vyplněnými daty si vyžádá potvrzení — data se ztratí.
+            </div>
+          )}
           <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 10 }}>Přidejte pole pro obě skupiny — zákazník vyplní svá online, prodejce vyplní interní při přidávání zákazníka.</div>
           <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
             {[{ k: "customer", l: "👤 Pole zákazníka", d: "Vyplní zákazník při potvrzení účasti online" }, { k: "internal", l: "🔒 Interní pole", d: "Vyplní prodejce při přidávání zákazníka" }].map((o) => (
@@ -1215,6 +1253,11 @@ function CreateWizard({ onClose, onCreate }) {
       {/* ── KROK 3 — vybavení & participace ── */}
       {step === 3 && (
         <>
+          {isEdit && hasParts && (
+            <div style={{ background: `${T.brass}14`, border: `1px solid ${T.brass}55`, borderRadius: 9, padding: "9px 13px", marginBottom: 12, fontSize: 12, color: T.cream, lineHeight: 1.6 }}>
+              ⚠️ Akce má přihlášené zákazníky. Přidat nové volby vybavení je bezpečné. Mazání volby, kterou si už někdo zvolil, si vyžádá potvrzení.
+            </div>
+          )}
           {/* vybavení zákazníka */}
           <div style={{ fontSize: 13.5, fontWeight: 600, color: T.cream, marginBottom: 8 }}>Volby vybavení pro zákazníka</div>
           <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>Zákazník si zvolí při potvrzení účasti. Každá volba může mít cenu pro zákazníka a naši pořizovací cenu (marže se počítá automaticky).</div>
@@ -1419,7 +1462,7 @@ function CreateWizard({ onClose, onCreate }) {
           )}
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
             <Btn kind="ghost" icon={ArrowLeft} onClick={() => setStep(4)}>Zpět</Btn>
-            <Btn kind="green" icon={Check} onClick={create}>Vytvořit akci</Btn>
+            <Btn kind="green" icon={Check} onClick={create}>{isEdit ? "Uložit změny" : "Vytvořit akci"}</Btn>
           </div>
         </>
       )}
@@ -1602,7 +1645,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       {tab === "report" && <ReportTab c={c} />}
       {tab === "start"  && <StartList c={c} role={role} onUpdate={onUpdate} />}
 
-      {editingCampaign && <EditCampaignModal c={c} onClose={() => setEditingCampaign(false)} onSave={(updated) => { onUpdate(() => updated); setEditingCampaign(false); }} />}
+      {editingCampaign && <CreateWizard editCampaign={c} onClose={() => setEditingCampaign(false)} onCreate={(updated) => { onUpdate(() => updated); setEditingCampaign(false); }} />}
       {adding   && <AddModal fields={c.fields} fieldMeta={c.fieldMeta} full={full} crossMap={crossMap} campEquipment={c.equipment || []} onClose={() => setAdding(false)} onAdd={(data, eq, info) => { if (addPart(data, eq, info)) setAdding(false); }} />}
       {hcpModal && <HcpModal onClose={() => setHcpModal(null)} onSave={(hcp) => setHcp(hcpModal, hcp)} />}
     </div>
