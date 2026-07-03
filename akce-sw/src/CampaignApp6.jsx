@@ -14,7 +14,37 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.7";
-const APP_BUILD = "2026-07-03 09:24";
+const APP_BUILD = "2026-07-03 09:31";
+
+/* ── Changelog / historie verzí ──
+   Novou verzi přidávej NAHORU. items = pole řetězců. */
+const CHANGELOG = [
+  {
+    version: "0.7",
+    date: "3. 7. 2026",
+    title: "Úprava akce, oddělení a pozvánka A4",
+    items: [
+      "✏️ Úprava akce nově jako plný průvodce kroky 1–5 — projdeš stejné kroky jako při zakládání, jen předvyplněné. Můžeš dodatečně upravit cokoli.",
+      "🛡️ Ochrana dat: u akcí s přihlášenými zákazníky varování v krocích Pole a Vybavení; mazání pole s daty vyžaduje potvrzení. Zákazníci, rozpočet, tým i pozvánka zůstávají zachováni.",
+      "🏢 Oddělení akce (OA, LKW, TRAPO, Servis, Marketing) — u akce lze určit, koho se týká. Prázdné = všechna.",
+      "📢 „Stav prodejcům\" — výběr příjemců podle oddělení i konkrétních prodejců, s přehledem volných míst.",
+      "📄 Pozvánka ve formátu A4 — náhled na stránce 210×297 mm a tlačítko Tisk / PDF (A4).",
+      "🐛 Oprava: schvalovatelé se konečně zobrazují ve shrnutí akce (krok 5).",
+    ],
+  },
+  {
+    version: "0.6",
+    date: "10. 6. 2026",
+    title: "Schvalování, exporty a rozpočet",
+    items: [
+      "Kompaktní seznam účastníků s rozbalením po kliknutí.",
+      "Vícenásobné přidávání členů týmu s ochranou proti duplicitám.",
+      "Exporty účastníků a rozpočtu do Excelu / CSV.",
+      "PDF export rozpočtu s koláčovým grafem.",
+      "Filtrování podle oddělení v panelu schvalování.",
+    ],
+  },
+];
 
 /* ── tokeny ── */
 const T = {
@@ -504,6 +534,7 @@ export default function App() {
   const [annualBudget, setAnnualBudget] = useState({ total: 500000, periodFrom: "2026-03", periodTo: "2027-03", note: "" });
   const [users, setUsers] = useState(initUsers);
   const [showUsers, setShowUsers] = useState(false);
+  const [showChangelog, setShowChangelog] = useState(false);
   const [editCampaign, setEditCampaign] = useState(null);
   const [role, setRole]   = useState("admin");
   const [open, setOpen]   = useState(null);
@@ -547,7 +578,7 @@ export default function App() {
           <div style={{ width: 38, height: 38, borderRadius: 10, background: T.green, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.brass}` }}><Layers size={18} color={T.brass} /></div>
           <div>
             <div style={{ fontSize: 17, fontWeight: 600 }}>Akce S&W</div>
-            <div style={{ fontSize: 12, color: T.textDim }}>Dashboard · rozpočet · vybavení · report · schválení <span style={{ color: T.brass, opacity: .6, fontSize: 11 }}>· v{APP_VERSION} · {APP_BUILD}</span></div>
+            <div style={{ fontSize: 12, color: T.textDim }}>Dashboard · rozpočet · vybavení · report · schválení <span onClick={() => setShowChangelog(true)} title="Zobrazit novinky ve verzi" style={{ color: T.brass, opacity: .75, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}>· v{APP_VERSION} · {APP_BUILD} 🎉</span></div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -582,6 +613,7 @@ export default function App() {
         )}
       </main>
       {showUsers && <UsersModal users={users} onClose={() => setShowUsers(false)} onUpdate={setUsers} />}
+      {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
       {editCampaign && <CreateWizard editCampaign={editCampaign} onClose={() => setEditCampaign(null)} onCreate={(updated) => { update(updated.id, () => updated); setEditCampaign(null); }} />}
     </div>
   );
@@ -997,6 +1029,40 @@ function AnnualModal({ onClose, budget, onChange, campaigns, totalExpected, tota
           </div>
         );
       })}
+    </Modal>
+  );
+}
+
+function ChangelogModal({ onClose }) {
+  return (
+    <Modal title="✨ Novinky ve verzi" onClose={onClose} wide>
+      <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 18, lineHeight: 1.6 }}>
+        Aktuální verze <b style={{ color: T.brass }}>v{APP_VERSION}</b> · build {APP_BUILD}. Přehled změn a vylepšení aplikace.
+      </div>
+      <div style={{ position: "relative", paddingLeft: 22 }}>
+        {/* svislá časová osa */}
+        <div style={{ position: "absolute", left: 6, top: 6, bottom: 6, width: 2, background: T.line }} />
+        {CHANGELOG.map((rel, idx) => (
+          <div key={rel.version} style={{ position: "relative", marginBottom: idx === CHANGELOG.length - 1 ? 0 : 26 }}>
+            {/* tečka na ose */}
+            <div style={{ position: "absolute", left: -22, top: 3, width: 14, height: 14, borderRadius: "50%", background: idx === 0 ? T.brass : T.panel2, border: `2px solid ${idx === 0 ? T.brass : T.line}`, boxShadow: idx === 0 ? `0 0 0 4px ${T.brass}22` : "none" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: T.cream }}>v{rel.version}</span>
+              {idx === 0 && <span style={{ fontSize: 10.5, fontWeight: 700, color: T.bg, background: T.brass, padding: "2px 8px", borderRadius: 20, letterSpacing: 0.3 }}>NEJNOVĚJŠÍ</span>}
+              <span style={{ fontSize: 11.5, color: T.textDim }}>{rel.date}</span>
+            </div>
+            {rel.title && <div style={{ fontSize: 13, fontWeight: 600, color: T.brass, marginBottom: 10 }}>{rel.title}</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {rel.items.map((it, i) => (
+                <div key={i} style={{ fontSize: 12.5, color: T.creamDim, lineHeight: 1.6, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 12px" }}>{it}</div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+        <Btn kind="primary" icon={Check} onClick={onClose}>Rozumím</Btn>
+      </div>
     </Modal>
   );
 }
