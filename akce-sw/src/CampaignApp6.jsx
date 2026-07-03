@@ -13,12 +13,25 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.10";
-const APP_BUILD = "2026-07-03 21:42";
+const APP_VERSION = "0.11";
+const APP_BUILD = "2026-07-03 22:03";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.11",
+    date: "3. 7. 2026",
+    title: "Napojení na skenovačku zkušebních jízd (náhled)",
+    items: [
+      "🔗 Nová sekce „Skenovačka zkušebních jízd\" v záložce Rezervace jízd — příprava dat pro mobilní appku, kterou hosteska používá na místě.",
+      "🚗 Tlačítko „Připravit auta pro skenovačku\" — pošle vozový park akce (zatím jen náhled).",
+      "👤 U pozvané akce tlačítko „Předvyplnit hosty\" — hosteska je pak nemusí ťukat ručně.",
+      "🏷️ Přepínač „Pozvaní hosté / Veřejná akce\" u testovacích jízd — u veřejné se zákazníci naberou až na místě.",
+      "🔒 Odkaz pro hostesku, který skenovačku nastaví přímo na danou akci — nespletena se starší akcí.",
+      "⏳ Zatím jde o náhled; reálný zápis do sdílené databáze (Firebase) zapneme při propojení appek.",
+    ],
+  },
   {
     version: "0.10",
     date: "3. 7. 2026",
@@ -447,6 +460,7 @@ const seed = () => {
     startTime: "", interval: 15, groups: [], equipment: [],
     // testovací jízdy:
     testCars: tdCars,
+    guestMode: "invited",
     driveStart: "09:00", driveEnd: "16:00", driveInterval: 30,
     reservations: [
       { id: uid(), carId: tdCars[0].id, slotIndex: 0, partId: tdParts[0].id },
@@ -1213,6 +1227,7 @@ function CreateWizard({ onClose, onCreate, editCampaign }) {
   const [info, setInfo] = useState({
     name: ec.name || "", date: ec.date ? ec.date.slice(0,10) : "", place: ec.place || "", capacity: ec.capacity || 12,
     activityType: ec.activityType || "golf", customType: ec.customType || "", approvers: ec.approvers || (ec.approver ? [ec.approver] : ["mira"]), departments: ec.departments || [], notes: ec.notes || "",
+    guestMode: ec.guestMode || "invited",
   });
   const [fields,      setFields]      = useState(ec.fields || baseFields());
   const [equipment,   setEquipment]   = useState(ec.equipment || []);
@@ -1291,7 +1306,7 @@ function CreateWizard({ onClose, onCreate, editCampaign }) {
       fieldMeta: { nameId, emailId, phoneId, hcpId },
       startTime: "08:00", interval: 15,
       // testovací jízdy — prázdný park, rozumná časová osa
-      testCars: [], driveStart: "09:00", driveEnd: "16:00", driveInterval: 30, reservations: [],
+      testCars: [], driveStart: "09:00", driveEnd: "16:00", driveInterval: 30, reservations: [], guestMode: info.guestMode || "invited",
       inviteMode, inviteTemplate: inviteTpl,
       reminders, golfStartType: golfStart,
       participation,
@@ -1369,6 +1384,25 @@ function CreateWizard({ onClose, onCreate, editCampaign }) {
               })}
             </div>
           </FRow>
+          {info.activityType === "testjizda" && (
+            <FRow label="Kdo přijde na zkušební jízdy 🚗">
+              <div style={{ fontSize: 11.5, color: T.textDim, marginBottom: 7 }}>Určuje, jestli půjde předvyplnit hosty do skenovačky. Auta se posílají vždy.</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { k: "invited", t: "Pozvaní hosté", d: "Víš dopředu, kdo přijde (pozvánky). Hosty lze předvyplnit do skenovačky." },
+                  { k: "public",  t: "Veřejná akce",  d: "Přijde kdokoli. Zákazníci se naberou až na místě přes sken." },
+                ].map((o) => {
+                  const on = (info.guestMode || "invited") === o.k;
+                  return (
+                    <div key={o.k} onClick={() => setInfo({ ...info, guestMode: o.k })} style={{ flex: 1, padding: "10px 12px", borderRadius: 9, border: `2px solid ${on ? T.brass : T.line}`, background: on ? `${T.brass}12` : T.bg, cursor: "pointer" }}>
+                      <div style={{ fontSize: 13, fontWeight: on ? 700 : 500, color: on ? T.brass : T.cream, marginBottom: 3 }}>{o.t}</div>
+                      <div style={{ fontSize: 11, color: T.textDim, lineHeight: 1.4 }}>{o.d}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </FRow>
+          )}
           {isGolf && (
             <div style={{ marginTop: 8 }}>
               <label style={lbl}>Typ startu ⛳</label>
@@ -4307,6 +4341,102 @@ function TestDriveGrid({ c, role, onUpdate }) {
       ) : (
         <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 30, textAlign: "center", color: T.textDim, fontSize: 13 }}>
           {cars.length === 0 ? "Přidejte alespoň jeden vůz." : "Nastavte začátek, konec a délku jízdy, aby se vygenerovaly časové sloty."}
+        </div>
+      )}
+
+      {/* ── Skenovačka zkušebních jízd (MOCK — napojení na Firebase přijde později) ── */}
+      {canEdit && <ScannerSync c={c} cars={cars} customers={customers} nameId={nameId} />}
+    </div>
+  );
+}
+
+/* Sekce pro přípravu dat do mobilní skenovací appky. Zatím jen mock:
+   ukáže, co by se zapsalo, a vygeneruje odkaz/QR, který skenovačku nastaví
+   na tuto akci (aby hosteska nevybrala starou). */
+function ScannerSync({ c, cars, customers, nameId }) {
+  const [done, setDone] = useState(null); // "cars" | "guests" | null
+  const invited = (c.guestMode || "invited") === "invited";
+  // odkaz, který skenovačku "zamkne" na tuto akci (identita = id + název)
+  const SCANNER_BASE = "https://dfwvhfnw7y-coder.github.io/Zku-ebn-j-zdy/index.html";
+  const eventLink = `${SCANNER_BASE}?event=${encodeURIComponent(c.name)}&eid=${encodeURIComponent(c.id)}`;
+
+  const carLines = cars.filter((car) => car.model?.trim());
+  const guestLines = customers.map((p) => ({
+    name: p.data[nameId] || "",
+    email: p.data[c.fieldMeta.emailId] || "",
+    phone: p.data[c.fieldMeta.phoneId] || "",
+  })).filter((g) => g.name);
+
+  const copyLink = () => {
+    try { navigator.clipboard?.writeText(eventLink); alert("Odkaz zkopírován do schránky."); }
+    catch { alert(eventLink); }
+  };
+
+  return (
+    <div style={{ marginTop: 16, background: T.panel, border: `1px solid ${T.info}44`, borderRadius: 12, padding: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <CalendarCheck size={16} color={T.info} />
+        <span style={{ fontSize: 14, fontWeight: 700 }}>Skenovačka zkušebních jízd</span>
+        <span style={{ fontSize: 10.5, color: T.warn, background: `${T.warn}18`, border: `1px solid ${T.warn}44`, padding: "1px 8px", borderRadius: 9, marginLeft: 4 }}>NÁHLED · zápis přijde s Firebase</span>
+      </div>
+      <div style={{ fontSize: 12, color: T.textDim, marginBottom: 14, lineHeight: 1.5 }}>
+        Připraví data pro mobilní appku, kterou hosteska používá na místě (sken QR aut a hostů). Auta se posílají vždy, hosty jen u pozvané akce.
+      </div>
+
+      {/* identita akce — aby se nespletla se starou */}
+      <div style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 9, padding: "11px 13px", marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: T.textDim, marginBottom: 4 }}>Skenovačka se nastaví na tuto akci</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: T.cream, marginBottom: 2 }}>🚗 {c.name}</div>
+        <div style={{ fontSize: 11, color: T.textDim, marginBottom: 9 }}>ID akce: {c.id} · {invited ? "Pozvaní hosté" : "Veřejná akce"}</div>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+          <Btn kind="ghost" icon={Link} small onClick={copyLink}>Kopírovat odkaz pro hostesku</Btn>
+        </div>
+        <div style={{ fontSize: 10.5, color: T.textDim, marginTop: 8, wordBreak: "break-all", fontFamily: "monospace", background: T.panel, borderRadius: 6, padding: "6px 9px" }}>{eventLink}</div>
+        <div style={{ fontSize: 11, color: T.textDim, marginTop: 6, lineHeight: 1.5 }}>
+          Hosteska otevře tento odkaz → skenovačka se rovnou přepne na akci „{c.name}". Jako záloha si ji může vybrat i ručně ze seznamu aktivních akcí.
+        </div>
+      </div>
+
+      {/* auta */}
+      <div style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 9, padding: "11px 13px", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600 }}>🚗 Auta ({carLines.length})</span>
+          <Btn kind="primary" icon={Send} small disabled={!carLines.length} onClick={() => { setDone("cars"); }}>Připravit auta pro skenovačku</Btn>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {carLines.map((car) => <span key={car.id} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 7, background: T.panel, border: `1px solid ${T.line}` }}>{car.model}{car.spz ? ` · ${car.spz}` : ""}</span>)}
+          {!carLines.length && <span style={{ fontSize: 12, color: T.textDim }}>Zatím žádná auta ve vozovém parku.</span>}
+        </div>
+      </div>
+
+      {/* hosté — jen u pozvané akce */}
+      {invited ? (
+        <div style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 9, padding: "11px 13px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>👤 Pozvaní hosté ({guestLines.length})</span>
+            <Btn kind="primary" icon={Send} small disabled={!guestLines.length} onClick={() => { setDone("guests"); }}>Předvyplnit hosty</Btn>
+          </div>
+          <div style={{ fontSize: 11.5, color: T.textDim, marginBottom: 8 }}>Hosteska je pak nemusí zadávat ručně — má je nachystané pro rychlý sken.</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {guestLines.map((g, i) => <span key={i} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 7, background: T.panel, border: `1px solid ${T.line}` }}>{g.name}</span>)}
+            {!guestLines.length && <span style={{ fontSize: 12, color: T.textDim }}>Žádní potvrzení hosté k odeslání.</span>}
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: `${T.info}0e`, border: `1px solid ${T.info}33`, borderRadius: 9, padding: "11px 13px", fontSize: 12, color: T.textDim, lineHeight: 1.5 }}>
+          ℹ️ Veřejná akce — zákazníky předem nevypisujeme. Naberou se až na místě přes skenovačku (sken QR nebo ruční zápis).
+        </div>
+      )}
+
+      {/* mock potvrzení */}
+      {done && (
+        <div style={{ marginTop: 12, background: `${T.greenLite}12`, border: `1px solid ${T.greenLite}44`, borderRadius: 9, padding: "11px 13px" }}>
+          <div style={{ fontSize: 12.5, color: T.greenLite, fontWeight: 600, marginBottom: 4 }}>
+            ✓ Náhled: {done === "cars" ? `${carLines.length} aut` : `${guestLines.length} hostů`} připraveno k odeslání do skenovačky
+          </div>
+          <div style={{ fontSize: 11, color: T.textDim, lineHeight: 1.5 }}>
+            Toto je zatím jen ukázka — reálný zápis do databáze skenovačky (Firebase „testovaci-jizdy") zapneme, až propojíme appky. Data by se zapsala pod akci „{c.name}".
+          </div>
         </div>
       )}
     </div>
