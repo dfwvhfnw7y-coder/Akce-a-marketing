@@ -14,7 +14,7 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.7";
-const APP_BUILD = "2026-06-10 23:14";
+const APP_BUILD = "2026-07-03 09:11";
 
 /* ── tokeny ── */
 const T = {
@@ -62,8 +62,10 @@ const USERS_SEED = [
   { id: "u2", name: "Tereza Machová",  email: "t.machova@sw-automobily.cz", phone: "+420 602 100 002", role: "approver", position: "Marketing manager",  active: true,  approverId: "tereza" },
   { id: "u3", name: "Matej Bugár",     email: "m.bugar@sw-automobily.cz",   phone: "+420 602 100 003", role: "approver", position: "Vedoucí prodeje nákladních vozidel", active: true,  approverId: "matej"  },
   { id: "u4", name: "Pavel Balog",     email: "p.balog@sw-automobily.cz",   phone: "+420 602 100 004", role: "approver", position: "Vedoucí prodeje osobních a užitkových vozů", active: true,  approverId: "pavel"  },
-  { id: "u5", name: "Martin Dvořák",   email: "m.dvorak@sw-automobily.cz",  phone: "+420 602 100 005", role: "lite",     position: "Obchodní zástupce",  dept: "Prodej osobních vozů",    active: true,  approverId: null     },
+  { id: "u5", name: "Martin Dvořák",   email: "m.dvorak@sw-automobily.cz",  phone: "+420 602 100 005", role: "lite",     position: "Obchodní zástupce",  dept: "OA (osobní vozy)",        active: true,  approverId: null     },
   { id: "u6", name: "Jana Procházková",email: "j.prochazkova@sw-automobily.cz",phone:"+420 602 100 006",role:"lite",     position: "Obchodní zástupce",  dept: "Servis",                  active: true,  approverId: null     },
+  { id: "u8", name: "Petr Kučera",     email: "p.kucera@sw-automobily.cz",  phone: "+420 602 100 008", role: "lite",     position: "Obchodní zástupce LKW", dept: "LKW (nákladní)",        active: true,  approverId: null     },
+  { id: "u9", name: "Ondřej Novotný",  email: "o.novotny@sw-automobily.cz", phone: "+420 602 100 009", role: "lite",     position: "Obchodní zástupce TRAPO", dept: "TRAPO",                active: true,  approverId: null     },
   { id: "u7", name: "Lucie Hosteska",  email: "l.hosteska@sw-automobily.cz",phone: "+420 602 100 007", role: "hosteska", position: "Hosteska / asistentka",active: true, approverId: null    },
 ];
 const initUsers = () => USERS_SEED;
@@ -148,6 +150,16 @@ const APPROVERS = [
   { id: "matej",  name: "Matej Bugár",     role: "Schvalovatel" },
   { id: "pavel",  name: "Pavel Balog",     role: "Schvalovatel" },
 ];
+
+// Oddělení, kterých se akce může týkat / komu rozeslat stav
+const EVENT_DEPTS = [
+  { id: "OA",        label: "OA (osobní vozy)" },
+  { id: "LKW",       label: "LKW (nákladní)" },
+  { id: "TRAPO",     label: "TRAPO" },
+  { id: "Servis",    label: "Servis" },
+  { id: "Marketing", label: "Marketing" },
+];
+const eventDeptLabel = (id) => EVENT_DEPTS.find((d) => d.id === id)?.label || id;
 
 const ACTIVITY_TYPES = [
   { id: "golf",      label: "⛳ Golf",            hasStartList: true  },
@@ -799,12 +811,16 @@ function EditCampaignModal({ c, onClose, onSave }) {
     golfStartType: c.golfStartType || "interval",
   });
   const [approvers, setApprovers] = useState(c.approvers || [c.approver].filter(Boolean) || ["mira"]);
+  const [departments, setDepartments] = useState(c.departments || []);
   const [reminders, setReminders] = useState(c.reminders || { r0: true, r14: true, r7: true, r1: true, rCustom: [], rAfter1: true });
   const [inviteMode, setInviteMode] = useState(c.inviteMode || "batch");
 
   const isGolf = info.activityType === "golf";
 
   const toggleApprover = (id) => setApprovers(prev =>
+    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+  );
+  const toggleDept = (id) => setDepartments(prev =>
     prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
   );
   const toggleReminder = (key) => setReminders(r => ({ ...r, [key]: !r[key] }));
@@ -814,7 +830,7 @@ function EditCampaignModal({ c, onClose, onSave }) {
 
   const save = () => {
     if (!info.name || !info.date) return;
-    onSave({ ...c, ...info, approvers, approver: approvers[0] || "mira", reminders, inviteMode });
+    onSave({ ...c, ...info, approvers, approver: approvers[0] || "mira", departments, reminders, inviteMode });
   };
 
   return (
@@ -863,6 +879,23 @@ function EditCampaignModal({ c, onClose, onSave }) {
               <span style={{ fontSize: 11.5, color: T.textDim }}>— {a.role}</span>
             </label>
           ))}
+        </div>
+      </div>
+
+      {/* oddělení akce */}
+      <div style={{ borderBottom: `1px solid ${T.line}`, paddingBottom: 16, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: T.brass, fontWeight: 600, letterSpacing: 0.4, marginBottom: 6, textTransform: "uppercase" }}>Oddělení akce</div>
+        <div style={{ fontSize: 11.5, color: T.textDim, marginBottom: 10 }}>Kterých oddělení se akce týká. Prázdné = všechna.</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+          {EVENT_DEPTS.map(d => {
+            const on = departments.includes(d.id);
+            return (
+              <label key={d.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", background: on ? `${T.brass}18` : T.bg, border: `1px solid ${on ? T.brass : T.line}`, borderRadius: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={on} onChange={() => toggleDept(d.id)} />
+                <span style={{ fontSize: 13, fontWeight: on ? 600 : 400, color: on ? T.cream : T.textDim }}>{d.label}</span>
+              </label>
+            );
+          })}
         </div>
       </div>
 
@@ -979,7 +1012,7 @@ function CreateWizard({ onClose, onCreate }) {
   const [fieldTarget, setFieldTarget] = useState('customer');
   const [info, setInfo] = useState({
     name: "", date: "", place: "", capacity: 12,
-    activityType: "golf", customType: "", approvers: ["mira"], notes: "",
+    activityType: "golf", customType: "", approvers: ["mira"], departments: [], notes: "",
   });
   const [fields,      setFields]      = useState(baseFields());
   const [equipment,   setEquipment]   = useState([]);
@@ -1089,6 +1122,23 @@ function CreateWizard({ onClose, onCreate }) {
               </div>
             </FRow>
           </div>
+          <FRow label="Oddělení akce (koho se týká)">
+            <div style={{ fontSize: 11.5, color: T.textDim, marginBottom: 7 }}>Vyberte, kterých oddělení se akce týká. Prázdné = všechna oddělení.</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+              {EVENT_DEPTS.map((d) => {
+                const on = info.departments?.includes(d.id);
+                return (
+                  <label key={d.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", background: on ? `${T.brass}18` : T.bg, border: `1px solid ${on ? T.brass : T.line}`, borderRadius: 8, cursor: "pointer" }}>
+                    <input type="checkbox" checked={on || false} onChange={(e) => {
+                      const cur = info.departments || [];
+                      setInfo({ ...info, departments: e.target.checked ? [...cur, d.id] : cur.filter((x) => x !== d.id) });
+                    }} />
+                    <span style={{ fontSize: 13, fontWeight: on ? 600 : 400, color: on ? T.cream : T.textDim }}>{d.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </FRow>
           {isGolf && (
             <div style={{ marginTop: 8 }}>
               <label style={lbl}>Typ startu ⛳</label>
@@ -1349,7 +1399,8 @@ function CreateWizard({ onClose, onCreate }) {
               ["Místo", info.place],
               ["Kapacita", `${info.capacity} míst`],
               ["Typ akce", ACTIVITY_TYPES.find((t) => t.id === info.activityType)?.label || info.customType],
-              ["Schvalovatel", APPROVERS.find((a) => a.id === info.approver)?.name],
+              ["Schvalovatelé", (info.approvers || []).map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ")],
+              ["Oddělení akce", (info.departments || []).length ? info.departments.map(eventDeptLabel).join(", ") : "Všechna"],
               ["Odeslání pozvánek", inviteMode === "batch" ? "Hromadně tlačítkem" : "Ihned po schválení"],
               ["Start (Golf)", isGolf ? (golfStart === "interval" ? "Intervalový" : "Canon start") : "—"],
               ["Participace", participation.enabled ? `${czk(participation.basePrice)} + ${participation.items.length} položek` : "Ne"],
@@ -1563,6 +1614,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
 ════════════════════════════════════════ */
 function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, emailId, phoneId, dupErr, setState, setNote, setGroup, setCrm, remove, canApprove, onAddOpen, onSendBatch, onResend, inviteMode }) {
   const [expandedCrm, setExpandedCrm] = useState(null);
+  const [statusModal, setStatusModal] = useState(false);
 
   const toggleCrm = (pid) => setExpandedCrm(prev => prev === pid ? null : pid);
 
@@ -1572,7 +1624,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
         <Btn kind={full ? "ghost" : "green"} icon={UserPlus} onClick={onAddOpen}>Přidat zákazníka</Btn>
         {canEdit && <Btn kind="ghost" icon={Download} onClick={() => exportCsv(c)}>Export CSV</Btn>}
         {canEdit && <Btn kind="ghost" icon={Download} onClick={() => exportExcel(c)}>Export Excel</Btn>}
-        {canApprove && <Btn kind="ghost" icon={Bell} onClick={() => alert("[Mock] Stav obsazenosti rozeslán prodejcům.")}><Users size={14} /> Stav prodejcům</Btn>}
+        {canApprove && <Btn kind="ghost" icon={Bell} onClick={() => setStatusModal(true)}><Users size={14} /> Stav prodejcům</Btn>}
         {canApprove && inviteMode === "batch" && (() => {
           const cnt = c.parts.filter((p) => p.state === "schvaleno").length;
           return cnt > 0 ? (
@@ -1700,7 +1752,97 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
         Tlačítkem <b style={{ color: T.info }}>👤 profil</b> otevřete CRM kartu zákazníka — kategorii, historii nákupů a důvod pozvání.
         Flow: <StateBadge state="ceka" /> → schválení → <StateBadge state="prihlasen" /> → zákazník potvrdí → <StateBadge state="potvrzen" />{isGolf ? " + HCP" : ""}
       </div>
+      {statusModal && <StatusToSellersModal c={c} onClose={() => setStatusModal(false)} />}
     </>
+  );
+}
+
+function StatusToSellersModal({ c, onClose }) {
+  // Přednastav oddělení podle akce; když akce nemá určená, nabídni všechna
+  const eventDepts = (c.departments && c.departments.length) ? c.departments : EVENT_DEPTS.map(d => d.id);
+  const [selDepts, setSelDepts] = useState(eventDepts);
+  const [selSellers, setSelSellers] = useState([]);
+  const [sent, setSent] = useState(false);
+
+  // prodejci (lite) filtrovaní podle vybraných oddělení; dept u usera je textový (label nebo id)
+  const matchesDept = (u) => {
+    const ud = (u.dept || "").toLowerCase();
+    return selDepts.some(id => ud === id.toLowerCase() || ud === eventDeptLabel(id).toLowerCase());
+  };
+  const sellers = USERS_SEED.filter(u => u.role === "lite" && u.active);
+  const filteredSellers = sellers.filter(u => selDepts.length === 0 ? true : matchesDept(u));
+
+  const toggleDept = (id) => setSelDepts(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggleSeller = (id) => setSelSellers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const used = c.parts.filter(p => ["prihlasen", "potvrzen", "schvaleno"].includes(p.state)).length;
+  const free = Math.max(0, (c.capacity || 0) - used);
+
+  const recipients = selSellers.length
+    ? sellers.filter(u => selSellers.includes(u.id))
+    : filteredSellers;
+
+  const send = () => setSent(true);
+
+  return (
+    <Modal title="Rozeslat stav obsazenosti prodejcům" onClose={onClose}>
+      {sent ? (
+        <div style={{ textAlign: "center", padding: "10px 0" }}>
+          <div style={{ fontSize: 34, marginBottom: 8 }}>✅</div>
+          <div style={{ fontSize: 15, color: T.cream, fontWeight: 600, marginBottom: 6 }}>Stav rozeslán {recipients.length} prodejcům</div>
+          <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 16, lineHeight: 1.7 }}>
+            Oddělení: {selDepts.map(eventDeptLabel).join(", ") || "všechna"}<br />
+            Volných míst: <b style={{ color: T.greenLite }}>{free}</b> z {c.capacity}
+          </div>
+          <div style={{ fontSize: 11, color: T.textDim, marginBottom: 16 }}>[Mock] Skutečný e-mail se odešle po napojení EmailJS.</div>
+          <Btn kind="green" icon={Check} onClick={onClose}>Zavřít</Btn>
+        </div>
+      ) : (
+        <>
+          <div style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, padding: "10px 12px", marginBottom: 16, fontSize: 12.5, color: T.creamDim }}>
+            Obsazeno <b style={{ color: T.cream }}>{used}</b> · volných <b style={{ color: T.greenLite }}>{free}</b> · kapacita <b style={{ color: T.cream }}>{c.capacity}</b>
+          </div>
+
+          <div style={{ fontSize: 12, color: T.brass, fontWeight: 600, letterSpacing: 0.4, marginBottom: 8, textTransform: "uppercase" }}>Komu poslat (oddělení)</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 16 }}>
+            {EVENT_DEPTS.map(d => {
+              const on = selDepts.includes(d.id);
+              return (
+                <label key={d.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", background: on ? `${T.brass}18` : T.bg, border: `1px solid ${on ? T.brass : T.line}`, borderRadius: 8, cursor: "pointer" }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleDept(d.id)} />
+                  <span style={{ fontSize: 13, fontWeight: on ? 600 : 400, color: on ? T.cream : T.textDim }}>{d.label}</span>
+                </label>
+              );
+            })}
+          </div>
+
+          <div style={{ fontSize: 12, color: T.brass, fontWeight: 600, letterSpacing: 0.4, marginBottom: 8, textTransform: "uppercase" }}>
+            Prodejci ({filteredSellers.length}) — volitelně upřesnit
+          </div>
+          <div style={{ fontSize: 11.5, color: T.textDim, marginBottom: 8 }}>Nic nevyberete = pošle se všem prodejcům z vybraných oddělení.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18, maxHeight: 220, overflowY: "auto" }}>
+            {filteredSellers.length === 0 && <div style={{ fontSize: 12.5, color: T.textDim, padding: "8px 0" }}>Žádní prodejci v těchto odděleních.</div>}
+            {filteredSellers.map(u => {
+              const on = selSellers.includes(u.id);
+              return (
+                <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", background: on ? `${T.brass}12` : T.bg, border: `1px solid ${on ? T.brass : T.line}`, borderRadius: 8, cursor: "pointer" }}>
+                  <input type="checkbox" checked={on} onChange={() => toggleSeller(u.id)} />
+                  <span style={{ fontSize: 13, fontWeight: on ? 600 : 400, color: on ? T.cream : T.textDim }}>{u.name}</span>
+                  {u.dept && <span style={{ fontSize: 11, color: T.brass, marginLeft: "auto" }}>{u.dept}</span>}
+                </label>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
+            <Btn kind="ghost" onClick={onClose}>Zrušit</Btn>
+            <Btn kind="green" icon={Send} disabled={selDepts.length === 0} onClick={send}>
+              Rozeslat stav ({recipients.length})
+            </Btn>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }
 
@@ -1801,8 +1943,55 @@ const COLORS_PALETTE = [
   "#1a3d24", "#4e8fbd", "#9068c8", "#c4614e", "#ffffff",
 ];
 
+// nahradí proměnné ukázkovými hodnotami akce pro tisk
+function fillInviteVars(str, c) {
+  const dstr = c.date ? new Date(c.date).toLocaleDateString("cs-CZ", { weekday: "long", year: "numeric", month: "long", day: "numeric" }) : "";
+  const org = c.team?.members?.find(m => m.role === "Organizátor");
+  return String(str || "")
+    .replace(/\{\{jmeno\}\}/g, "vážený hoste").replace(/\{\{prijmeni\}\}/g, "")
+    .replace(/\{\{nazev_akce\}\}/g, c.name || "").replace(/\{\{datum\}\}/g, dstr)
+    .replace(/\{\{misto\}\}/g, c.place || "").replace(/\{\{flight_cas\}\}/g, c.startTime || "")
+    .replace(/\{\{dress_code\}\}/g, "Smart casual").replace(/\{\{organizator_tel\}\}/g, org?.phone || "")
+    .replace(/\{\{kalendar_odkaz\}\}/g, "#");
+}
+const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function printInviteA4(c, invite) {
+  const inv = invite || {};
+  const blocksHtml = (inv.blocks || []).map((b) => {
+    if (b.type === "divider") return `<hr style="border:none;border-top:1px solid rgba(255,255,255,.18);margin:18px 0" />`;
+    if (b.type === "header")  return `<div style="font-size:${(b.size||20)*1.3}px;font-weight:${b.bold?700:400};color:${b.color};text-align:${b.align};margin-bottom:18px;font-style:${b.italic?"italic":"normal"}">${esc(fillInviteVars(b.content, c))}</div>`;
+    if (b.type === "text")    return `<div style="font-size:${(b.size||14)*1.15}px;font-weight:${b.bold?600:400};color:${b.color};text-align:${b.align};margin-bottom:18px;line-height:1.8;white-space:pre-wrap;font-style:${b.italic?"italic":"normal"}">${esc(fillInviteVars(b.content, c))}</div>`;
+    if (b.type === "image")   return b.url ? `<img src="${b.url}" style="width:100%;border-radius:9px;margin-bottom:18px;display:block" />` : "";
+    if (b.type === "infobox") return `<div style="background:rgba(255,255,255,.10);border-radius:12px;padding:16px 20px;margin-bottom:18px">${(b.items||[]).map(it => `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;font-size:16px"><span style="font-size:20px;min-width:28px">${it.icon||""}</span><span style="color:rgba(255,255,255,.55);min-width:70px">${esc(it.label)}:</span><span style="color:#f2ede0;font-weight:600">${esc(fillInviteVars(it.value, c))}</span></div>`).join("")}</div>`;
+    if (b.type === "button")  return `<div style="text-align:center;margin-bottom:18px"><span style="display:inline-block;background:${b.color};color:#1a1a1a;padding:12px 30px;border-radius:9px;font-weight:700;font-size:16px">${esc(b.label)}</span></div>`;
+    if (b.type === "link")    return `<div style="text-align:center;margin-bottom:16px"><span style="color:#c8a044;text-decoration:underline;font-style:${b.italic?"italic":"normal"}">${esc(b.label)}</span></div>`;
+    return "";
+  }).join("");
+
+  const header = inv.headerImg ? `<img src="${inv.headerImg}" style="width:100%;max-height:240px;object-fit:cover;display:block" />` : "";
+  const html = `<!DOCTYPE html><html lang="cs"><head><meta charset="utf-8"><title>Pozvánka — ${esc(c.name)}</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  html,body { margin:0; padding:0; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family:${inv.fontFamily || "Georgia, serif"}; }
+  .page { width:210mm; min-height:297mm; background:${inv.bgColor || "#1a3d24"}; margin:0 auto; overflow:hidden; }
+  .content { padding:20mm 22mm; }
+  @media screen { body { background:#333; padding:20px; } .page { box-shadow:0 4px 30px rgba(0,0,0,.5); } }
+</style></head><body>
+<div class="page">${header}<div class="content">${blocksHtml}</div></div>
+<script>window.onload=()=>setTimeout(()=>window.print(),400)</script>
+</body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Povolte prosím vyskakovací okna pro tisk."); return; }
+  w.document.write(html);
+  w.document.close();
+}
+
 function InviteTab({ c, canEdit, onUpdate }) {
   const [view, setView] = useState("builder"); // builder | preview
+  const [a4Mode, setA4Mode] = useState(false);
   const [editBlock, setEditBlock] = useState(null);
   const invite = c.invite || { bgColor: "#1a3d24", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [] };
 
@@ -1857,7 +2046,17 @@ function InviteTab({ c, canEdit, onUpdate }) {
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 12, color: T.textDim }}>Klikněte na proměnnou pro vložení do textu</div>
+        {view === "preview" ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: a4Mode ? T.cream : T.textDim, cursor: "pointer", padding: "6px 12px", background: a4Mode ? `${T.brass}18` : T.bg, border: `1px solid ${a4Mode ? T.brass : T.line}`, borderRadius: 8 }}>
+              <input type="checkbox" checked={a4Mode} onChange={() => setA4Mode(v => !v)} />
+              📄 Formát A4
+            </label>
+            <Btn kind="ghost" icon={Printer} small onClick={() => printInviteA4(c, invite)}>Tisk / PDF (A4)</Btn>
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: T.textDim }}>Klikněte na proměnnou pro vložení do textu</div>
+        )}
       </div>
 
       {view === "builder" && (
@@ -2064,10 +2263,11 @@ function InviteTab({ c, canEdit, onUpdate }) {
 
       {/* NÁHLED */}
       {view === "preview" && (
-        <div style={{ maxWidth: 560, margin: "0 auto" }}>
-          <div style={{ background: invite.bgColor, borderRadius: 14, overflow: "hidden", fontFamily: invite.fontFamily, fontSize: invite.fontSize, boxShadow: "0 8px 32px rgba(0,0,0,.4)" }}>
+        <div style={{ maxWidth: a4Mode ? 620 : 560, margin: "0 auto" }}>
+          {a4Mode && <div style={{ textAlign: "center", fontSize: 11.5, color: T.textDim, marginBottom: 8 }}>Náhled na stránce A4 (210 × 297 mm) — přesně tak vyjede z tisku / PDF.</div>}
+          <div style={{ background: invite.bgColor, borderRadius: a4Mode ? 4 : 14, overflow: "hidden", fontFamily: invite.fontFamily, fontSize: invite.fontSize, boxShadow: "0 8px 32px rgba(0,0,0,.4)", ...(a4Mode ? { width: "100%", aspectRatio: "210 / 297" } : {}) }}>
             {invite.headerImg && <img src={invite.headerImg} alt="banner" style={{ width: "100%", maxHeight: 180, objectFit: "cover", display: "block" }} />}
-            <div style={{ padding: "22px 26px" }}>
+            <div style={{ padding: a4Mode ? "40px 46px" : "22px 26px" }}>
               {invite.blocks.map((block) => {
                 if (block.type === "divider") return <hr key={block.id} style={{ border: "none", borderTop: "1px solid rgba(255,255,255,.15)", margin: "14px 0" }} />;
                 if (block.type === "header") return (
