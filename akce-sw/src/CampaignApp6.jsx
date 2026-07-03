@@ -14,7 +14,7 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.10";
-const APP_BUILD = "2026-07-03 21:27";
+const APP_BUILD = "2026-07-03 21:42";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
@@ -30,6 +30,7 @@ const CHANGELOG = [
       "👤 Rezervace zákazníka klikem do buňky. Jeden zákazník může mít víc vozů — u jména se ukáže počet.",
       "🔧 Blokace slotu (pauza, tankování, servis) — auto v tu chvíli nejezdí.",
       "↔️ Přetahování rezervací mezi volnými buňkami, hlídání obsazenosti (dvě rezervace na jeden slot nejdou).",
+      "👀 Prodejce a hosteska vidí plán jízd (kdo kdy jede) v režimu pouze pro čtení — upravovat ho může jen vedení.",
       "📤 Export mřížky do CSV.",
       "📨 Rezervace přes odkaz v pozvánce (zákazník si vybere vůz a čas sám) přijde s napojením na server.",
     ],
@@ -1685,10 +1686,13 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
   const apIds      = (c.approvers && c.approvers.length) ? c.approvers : [c.approver].filter(Boolean);
   const apNames    = apIds.map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ");
 
-  // prodejce/hosteska smí jen "list" a "leads" — když je na skrytém tabu, vrať ho na účastníky
+  // prodejce/hosteska smí "list", "leads" a u testovacích jízd i "drive" (jen ke čtení)
+  const canSeeDrive = ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasReservation;
   React.useEffect(() => {
-    if (!isMgmt && tab !== "list" && tab !== "leads") setTab("list");
-  }, [isMgmt, tab]);
+    if (isMgmt) return;
+    const ok = tab === "list" || tab === "leads" || (tab === "drive" && canSeeDrive);
+    if (!ok) setTab("list");
+  }, [isMgmt, tab, canSeeDrive]);
 
   const addPart = (data, eqChoice = {}, customerInfo = {}) => {
     const email = (data[emailId] || "").trim().toLowerCase();
@@ -1846,7 +1850,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
         {isMgmt && ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasStartList && (
           <DTab active={tab === "start"} onClick={() => setTab("start")} icon={Flag}>Startovní listina</DTab>
         )}
-        {isMgmt && ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasReservation && (
+        {ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasReservation && (
           <DTab active={tab === "drive"} onClick={() => setTab("drive")} icon={CalendarCheck}>Rezervace jízd</DTab>
         )}
       </div>
@@ -1861,7 +1865,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       {tab === "leads"  && <LeadsTab c={c} role={role} onUpdate={onUpdate} />}
       {isMgmt && tab === "report" && <ReportTab c={c} />}
       {isMgmt && tab === "start"  && <StartList c={c} role={role} onUpdate={onUpdate} />}
-      {isMgmt && tab === "drive"  && <TestDriveGrid c={c} role={role} onUpdate={onUpdate} />}
+      {tab === "drive" && ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasReservation && <TestDriveGrid c={c} role={role} onUpdate={onUpdate} />}
 
       {editingCampaign && <CreateWizard editCampaign={c} onClose={() => setEditingCampaign(false)} onCreate={(updated) => { onUpdate(() => updated); setEditingCampaign(false); }} />}
       {adding   && <AddModal fields={c.fields} fieldMeta={c.fieldMeta} full={full} crossMap={crossMap} campEquipment={c.equipment || []} onClose={() => setAdding(false)} onAdd={(data, eq, info) => { if (addPart(data, eq, info)) setAdding(false); }} />}
@@ -4249,7 +4253,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
                               {custResCount(r.partId) > 1 && <span style={{ fontSize: 9.5, color: T.brass }}>{custResCount(r.partId)}× vůz</span>}
                             </>
                           ) : (
-                            <span style={{ fontSize: 15, color: T.line, textAlign: "center" }}>+</span>
+                            <span style={{ fontSize: 15, color: T.line, textAlign: "center" }}>{canEdit ? "+" : ""}</span>
                           )}
                         </div>
 
