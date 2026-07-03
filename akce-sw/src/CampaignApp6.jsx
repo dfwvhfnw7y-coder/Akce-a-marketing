@@ -14,7 +14,7 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.9";
-const APP_BUILD = "2026-07-03 21:00";
+const APP_BUILD = "2026-07-03 21:04";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
