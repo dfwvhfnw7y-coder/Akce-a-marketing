@@ -13,12 +13,25 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.12";
-const APP_BUILD = "2026-07-06 20:50";
+const APP_VERSION = "0.13";
+const APP_BUILD = "2026-07-06 21:18";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.13",
+    date: "6. 7. 2026",
+    title: "Testovací jízdy — opravy a doladění",
+    items: [
+      "🩹 Oprava: zákazníka teď jde přetáhnout na jiné auto ve stejném čase (appka omylem hlásila konflikt sama se sebou).",
+      "⏱️ Bloky se zakládají klikem — vybereš typ a délku. Tažení přes sloty jsme zrušili (nefungovalo spolehlivě).",
+      "☕ Pauza má nastavitelnou délku 10/20/30/60 min. Tankování 10/20/30, nabíjení 30/60/90 (nabíjení chvíli trvá 🙂).",
+      "📋 Zákazník z ulice: přibylo pole na e-mail a volba „vytvořit lead“. Bez e-mailu se označí, že dotazník je potřeba předat osobně.",
+      "❗ Čas na přípravu vozu nově i 30 min.",
+      "🪟 Okno buňky se přizpůsobí výšce — tlačítko Zavřít je vždy dostupné (dřív se schovávalo za pauzou).",
+    ],
+  },
   {
     version: "0.12",
     date: "3. 7. 2026",
@@ -26,9 +39,9 @@ const CHANGELOG = [
     items: [
       "🚫 Zákazník nemůže testovat dvě auta ve stejný čas — appka to hlídá a nedovolí dvojí rezervaci ve stejném slotu.",
       "⛽ Bloky s typem: Tankování, Nabíjení, Oběd, Pauza (s ikonou).",
-      "🖱️ Blok natáhneš tažením přes více slotů (oběd na hodinu apod.) — nebo klikem na jeden slot.",
+      "🖱️ Blok vybereš klikem na typ a zvolíš délku (natažení přes víc slotů řeší appka sama).",
       "⏰ „Jezdí od…\" u vozu — když auto dorazí pozdě (VIP zaspí, služební vůz), sloty před příjezdem se zašefrují a nejdou rezervovat.",
-      "❗ Čas na přípravu vozu (0/5/10/15 min) mezi jízdami jako rezerva, kdyby se kolona zpozdila. Nastavuje se i při zakládání akce.",
+      "❗ Čas na přípravu vozu (0/5/10/15/30 min) mezi jízdami jako rezerva, kdyby se kolona zpozdila. Nastavuje se i při zakládání akce.",
       "🚗 Vozidla lze přidat rovnou při zakládání akce (v průvodci), další se dají doplnit v sekci Rezervace jízd.",
       "🧍 Zákazník „z ulice\" — i u pozvané akce lze přidat hosta, který přijde neohlášeně; označí se štítkem.",
       "⏱️ Délka jízdy nově i 45 a 90 min.",
@@ -277,13 +290,14 @@ const ACTIVITY_TYPES = [
 
 /* ── testovací jízdy: helpery pro časové sloty ── */
 const DRIVE_INTERVALS = [30, 45, 60, 90];
-const PREP_TIMES = [0, 5, 10, 15]; // čas na přípravu vozu mezi jízdami (min)
+const PREP_TIMES = [0, 5, 10, 15, 30]; // čas na přípravu vozu mezi jízdami (min)
 // typy blokace vozu
+// mins = nabízené délky bloku (klik = kolik po sobě jdoucích slotů se zablokuje)
 const CAR_BLOCKS = [
-  { id: "tankovani", label: "Tankování", icon: "⛽" },
-  { id: "nabijeni",  label: "Nabíjení",  icon: "🔌" },
-  { id: "obed",      label: "Oběd",      icon: "🍽️" },
-  { id: "pauza",     label: "Pauza",     icon: "☕" },
+  { id: "tankovani", label: "Tankování", icon: "⛽", mins: [10, 20, 30] },      // tankování je rychlé
+  { id: "nabijeni",  label: "Nabíjení",  icon: "🔌", mins: [30, 60, 90] },      // nabíjení trvá dýl :-)
+  { id: "obed",      label: "Oběd",      icon: "🍽️", mins: [30, 60] },
+  { id: "pauza",     label: "Pauza",     icon: "☕", mins: [10, 20, 30, 60] },
 ];
 const blockLabel = (note) => CAR_BLOCKS.find((b) => b.id === note)?.label || note || "Blok";
 const blockIcon  = (note) => CAR_BLOCKS.find((b) => b.id === note)?.icon || "🔧";
@@ -4216,7 +4230,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
   const canEdit = role === "admin" || role === "approver";
   const [dragRes, setDragRes] = useState(null);   // id přetahované rezervace
   const [cellMenu, setCellMenu] = useState(null);  // { carId, slotIndex }
-  const [paint, setPaint] = useState(null);        // malování bloku tažením: { carId, type, from }
+  const [blockPick, setBlockPick] = useState(null); // výběr délky bloku: { type } (v otevřeném menu)
   const [addStreet, setAddStreet] = useState(null); // { carId, slotIndex } → přidat zákazníka z ulice
 
   const cars = c.testCars || [];
@@ -4230,9 +4244,10 @@ function TestDriveGrid({ c, role, onUpdate }) {
   const custName = (partId) => customers.find((p) => p.id === partId)?.data[nameId] || c.parts.find((p) => p.id === partId)?.data[nameId] || "—";
   const custResCount = (partId) => reservations.filter((r) => r.partId === partId && !r.blocked).length;
 
-  // je zákazník už zarezervovaný v tomto časovém slotu (na JINÉM autě)?
-  const custBusyAt = (partId, slotIndex, exceptCarId) =>
-    reservations.some((r) => r.partId === partId && r.slotIndex === slotIndex && r.carId !== exceptCarId && !r.blocked);
+  // je zákazník už zarezervovaný v tomto časovém slotu (na JINÉ rezervaci)?
+  // exceptResId = id rezervace, kterou přesouváme (tu ignorujeme, nekoliduje sama se sebou)
+  const custBusyAt = (partId, slotIndex, exceptResId) =>
+    reservations.some((r) => r.partId === partId && r.slotIndex === slotIndex && r.id !== exceptResId && !r.blocked);
 
   // je auto dostupné v daném slotu? (pozdní příjezd → availFrom)
   const carAvailable = (car, slot) => {
@@ -4244,15 +4259,30 @@ function TestDriveGrid({ c, role, onUpdate }) {
   const patchRes = (fn) => onUpdate((camp) => ({ ...camp, reservations: fn(camp.reservations || []) }));
 
   const bookCustomer = (carId, slotIndex, partId) => {
-    if (partId && custBusyAt(partId, slotIndex, carId)) {
+    const existing = resAt(carId, slotIndex);
+    if (partId && custBusyAt(partId, slotIndex, existing?.id)) {
       alert("Tento zákazník už v tomto čase jede jiný vůz. Jeden zákazník nemůže testovat dvě auta najednou.");
       return;
     }
     patchRes((rs) => [...rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId, blocked: false }]);
     setCellMenu(null);
   };
-  const blockCell = (carId, slotIndex, type = "pauza") => {
-    patchRes((rs) => [...rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId: null, blocked: true, note: type }]);
+  // zablokuje jeden nebo víc po sobě jdoucích slotů podle zvolené délky (min).
+  // Kolik slotů = zaokrouhleno nahoru z minut / (délka jízdy + příprava), min. 1.
+  const slotSpan = c.driveInterval || 30; // "užitná" délka jednoho slotu (bez prep)
+  const blockCell = (carId, slotIndex, type = "pauza", mins = null) => {
+    const count = mins ? Math.max(1, Math.ceil(mins / slotSpan)) : 1;
+    const maxIdx = slots.length ? slots[slots.length - 1].idx : slotIndex;
+    patchRes((rs) => {
+      let out = [...rs];
+      for (let k = 0; k < count; k++) {
+        const idx = slotIndex + k;
+        if (idx > maxIdx) break;
+        out = out.filter((r) => !(r.carId === carId && r.slotIndex === idx));
+        out.push({ id: uid(), carId, slotIndex: idx, partId: null, blocked: true, note: type });
+      }
+      return out;
+    });
     setCellMenu(null);
   };
   const clearCell = (carId, slotIndex) => {
@@ -4268,22 +4298,8 @@ function TestDriveGrid({ c, role, onUpdate }) {
     const car = cars.find((x) => x.id === carId);
     const slot = slots.find((s) => s.idx === slotIndex);
     if (car && slot && !carAvailable(car, slot)) { alert("Vůz v tomto čase ještě není k dispozici."); return; }
-    if (!r.blocked && r.partId && custBusyAt(r.partId, slotIndex, carId)) { alert("Zákazník už v tomto čase jede jiný vůz."); return; }
+    if (!r.blocked && r.partId && custBusyAt(r.partId, slotIndex, r.id)) { alert("Zákazník už v tomto čase jede jiný vůz."); return; }
     patchRes((rs) => rs.map((x) => x.id === resId ? { ...x, carId, slotIndex } : x));
-  };
-
-  // malování bloku tažením přes více slotů
-  const startPaint = (carId, type, slotIdx) => { if (canEdit) setPaint({ carId, type, from: slotIdx, to: slotIdx }); };
-  const extendPaint = (slotIdx) => { if (paint) setPaint((p) => ({ ...p, to: slotIdx })); };
-  const commitPaint = () => {
-    if (!paint) return;
-    const lo = Math.min(paint.from, paint.to), hi = Math.max(paint.from, paint.to);
-    patchRes((rs) => {
-      let out = rs.filter((r) => !(r.carId === paint.carId && r.slotIndex >= lo && r.slotIndex <= hi));
-      for (let i = lo; i <= hi; i++) out.push({ id: uid(), carId: paint.carId, slotIndex: i, partId: null, blocked: true, note: paint.type });
-      return out;
-    });
-    setPaint(null);
   };
 
   // správa vozového parku
@@ -4293,18 +4309,30 @@ function TestDriveGrid({ c, role, onUpdate }) {
 
   const setDrive = (patch) => onUpdate((camp) => ({ ...camp, ...patch }));
 
-  // přidání zákazníka "z ulice" — vytvoří účastníka a rovnou rezervuje
-  const addStreetCustomer = (carId, slotIndex, name, phone) => {
+  // přidání zákazníka "z ulice" — vytvoří účastníka a rovnou rezervuje.
+  // makeLead=true → založí i lead (aby se na něj nezapomnělo, když nemá e-mail na dotazník).
+  const addStreetCustomer = (carId, slotIndex, name, phone, email, makeLead, model) => {
     if (!name.trim()) return;
     const pid = uid();
+    const hasEmail = !!email.trim();
     onUpdate((camp) => {
       const newPart = { id: pid, state: "potvrzen", note: "Z ulice", flight: null, hcp: "", group: null, eqChoice: {}, fromStreet: true,
-        data: { [nameId]: name, [camp.fieldMeta.emailId]: "", [camp.fieldMeta.phoneId]: phone } };
-      return {
+        // bez e-mailu se dotazník nedá poslat mailem → označíme k ručnímu předání
+        needsSurvey: !hasEmail,
+        data: { [nameId]: name, [camp.fieldMeta.emailId]: email, [camp.fieldMeta.phoneId]: phone } };
+      const next = {
         ...camp,
         parts: [...camp.parts, newPart],
         reservations: [...(camp.reservations || []).filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId: pid, blocked: false }],
       };
+      if (makeLead) {
+        next.leads = [...(camp.leads || []), {
+          id: uid(), name, phone, model: model || (cars.find((x) => x.id === carId)?.model) || "",
+          interest: "informace", note: hasEmail ? "Zákazník z ulice." : "Zákazník z ulice — bez e-mailu, dotazník předat osobně / získat kontakt.",
+          addedBy: role, assignedTo: null, at: new Date().toISOString().slice(0, 10), isGuest: true, fromStreet: true,
+        }];
+      }
+      return next;
     });
     setAddStreet(null);
     setCellMenu(null);
@@ -4314,7 +4342,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
   const totalCells  = cars.length * slots.length;
 
   return (
-    <div onMouseUp={() => paint && commitPaint()} onMouseLeave={() => paint && commitPaint()}>
+    <div>
       {/* nastavení času */}
       <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 14, background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14, flexWrap: "wrap" }}>
         <div style={{ width: 110 }}><label style={lbl}>Začátek</label><input type="time" value={c.driveStart || ""} onChange={(e) => setDrive({ driveStart: e.target.value })} style={inputStyle} disabled={!canEdit} /></div>
@@ -4363,7 +4391,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
       {cars.length > 0 && slots.length > 0 ? (
         <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14, overflowX: "auto" }}>
           <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 4 }}>
-            {canEdit ? "Klik = rezervace / blokace. Rezervace přetáhneš mezi volnými buňkami. Blok (oběd, pauza…) natáhneš tažením přes více slotů." : "Přehled rezervací."}
+            {canEdit ? "Klik = rezervace / blokace. Rezervaci zákazníka přetáhneš mezi volnými buňkami. Blok (oběd, pauza, tankování…) vybereš klikem a zvolíš délku." : "Přehled rezervací."}
           </div>
           {prep > 0 && <div style={{ fontSize: 11, color: T.textDim, marginBottom: 10 }}>❗ Za každou jízdou je {prep} min rezerva na přípravu vozu (úzký pruh).</div>}
           <table style={{ borderCollapse: "separate", borderSpacing: 3, fontSize: 12.5 }}>
@@ -4393,24 +4421,22 @@ function TestDriveGrid({ c, role, onUpdate }) {
                     const filled = !!r;
                     const isBlock = r?.blocked;
                     const unavail = !carAvailable(car, s);
-                    const inPaint = paint && paint.carId === car.id && s.idx >= Math.min(paint.from, paint.to) && s.idx <= Math.max(paint.from, paint.to);
                     const menuOpen = canEdit && cellMenu && cellMenu.carId === car.id && cellMenu.slotIndex === s.idx;
                     return (
                       <td key={s.idx}
                         onDragOver={(e) => { if (canEdit && dragRes && !filled && !unavail) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
                         onDrop={(e) => { e.preventDefault(); if (canEdit && dragRes && !filled && !unavail) { moveRes(dragRes, car.id, s.idx); setDragRes(null); } }}
-                        onMouseEnter={() => { if (paint && paint.carId === car.id) extendPaint(s.idx); }}
                         style={{ padding: 0, verticalAlign: "top", position: "relative" }}>
                         <div
                           draggable={canEdit && filled && !isBlock}
                           onDragStart={(e) => { if (canEdit && filled && !isBlock) { setDragRes(r.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", r.id); } }}
                           onDragEnd={() => setDragRes(null)}
-                          onClick={() => { if (canEdit && !paint) setCellMenu(menuOpen ? null : { carId: car.id, slotIndex: s.idx }); }}
+                          onClick={() => { if (canEdit) { setBlockPick(null); setCellMenu(menuOpen ? null : { carId: car.id, slotIndex: s.idx }); } }}
                           style={{
                             minWidth: 82, minHeight: 44, borderRadius: 7, padding: "6px 7px", cursor: canEdit ? "pointer" : "default",
                             position: "relative", overflow: "hidden",
-                            background: inPaint ? `${T.warn}33` : unavail ? "repeating-linear-gradient(45deg,#2a2a2a,#2a2a2a 5px,#222 5px,#222 10px)" : isBlock ? `${T.warn}22` : filled ? `${T.greenLite}1e` : T.bg,
-                            border: `1px solid ${inPaint ? T.warn : unavail ? "#3a3a3a" : isBlock ? T.warn + "66" : filled ? T.greenLite + "66" : T.line}`,
+                            background: unavail ? "repeating-linear-gradient(45deg,#2a2a2a,#2a2a2a 5px,#222 5px,#222 10px)" : isBlock ? `${T.warn}22` : filled ? `${T.greenLite}1e` : T.bg,
+                            border: `1px solid ${unavail ? "#3a3a3a" : isBlock ? T.warn + "66" : filled ? T.greenLite + "66" : T.line}`,
                             display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, opacity: unavail && !filled ? 0.5 : 1,
                           }}>
                           {/* pruh přípravy vozu */}
@@ -4433,7 +4459,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
                         {/* mini-menu buňky */}
                         {menuOpen && (
                           <div style={{ position: "absolute", top: 46, left: 0, zIndex: 30 }}>
-                            <div style={{ background: T.panel2, border: `1px solid ${T.brass}55`, borderRadius: 9, padding: 9, minWidth: 210, boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+                            <div style={{ background: T.panel2, border: `1px solid ${T.brass}55`, borderRadius: 9, padding: 9, minWidth: 210, maxHeight: "60vh", overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
                               <div style={{ fontSize: 11, color: T.textDim, marginBottom: 7 }}>{car.model} · {minToHM(s.from)}{unavail ? " · vůz nedostupný" : ""}</div>
                               {!r?.blocked && !unavail && !addStreet && (
                                 <select
@@ -4442,7 +4468,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
                                   style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, marginBottom: 7 }}>
                                   <option value="">— vyber zákazníka —</option>
                                   {customers.map((p) => {
-                                    const busy = custBusyAt(p.id, s.idx, car.id);
+                                    const busy = custBusyAt(p.id, s.idx, r?.id);
                                     return <option key={p.id} value={p.id} disabled={busy}>{p.data[nameId] || "—"}{busy ? " (už jede jinde)" : ""}</option>;
                                   })}
                                 </select>
@@ -4452,28 +4478,47 @@ function TestDriveGrid({ c, role, onUpdate }) {
                                 <div style={{ marginBottom: 7, padding: 8, background: T.bg, borderRadius: 7, border: `1px solid ${T.info}44` }}>
                                   <div style={{ fontSize: 10.5, color: T.info, marginBottom: 5 }}>Zákazník z ulice</div>
                                   <input id={`str-name-${car.id}-${s.idx}`} placeholder="Jméno" style={{ ...inputStyle, padding: "4px 7px", fontSize: 12, marginBottom: 4 }} />
-                                  <input id={`str-phone-${car.id}-${s.idx}`} placeholder="Telefon" style={{ ...inputStyle, padding: "4px 7px", fontSize: 12, marginBottom: 6 }} />
+                                  <input id={`str-phone-${car.id}-${s.idx}`} placeholder="Telefon" style={{ ...inputStyle, padding: "4px 7px", fontSize: 12, marginBottom: 4 }} />
+                                  <input id={`str-email-${car.id}-${s.idx}`} placeholder="E-mail (pro dotazník, nepovinné)" style={{ ...inputStyle, padding: "4px 7px", fontSize: 12, marginBottom: 4 }} />
+                                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.textDim, marginBottom: 6, cursor: "pointer" }}>
+                                    <input type="checkbox" id={`str-lead-${car.id}-${s.idx}`} defaultChecked style={{ accentColor: T.brass }} />
+                                    Vytvořit lead (ať se nezapomene na dotazník)
+                                  </label>
                                   <div style={{ display: "flex", gap: 5 }}>
-                                    <button onClick={() => { const n = document.getElementById(`str-name-${car.id}-${s.idx}`).value; const p = document.getElementById(`str-phone-${car.id}-${s.idx}`).value; addStreetCustomer(car.id, s.idx, n, p); }} style={{ flex: 1, fontSize: 11, padding: "5px", borderRadius: 6, border: "none", background: T.greenLite, color: "#0a1f14", fontWeight: 600, cursor: "pointer" }}>Přidat a rezervovat</button>
+                                    <button onClick={() => { const n = document.getElementById(`str-name-${car.id}-${s.idx}`).value; const p = document.getElementById(`str-phone-${car.id}-${s.idx}`).value; const em = document.getElementById(`str-email-${car.id}-${s.idx}`).value; const ml = document.getElementById(`str-lead-${car.id}-${s.idx}`).checked; addStreetCustomer(car.id, s.idx, n, p, em, ml, car.model); }} style={{ flex: 1, fontSize: 11, padding: "5px", borderRadius: 6, border: "none", background: T.greenLite, color: "#0a1f14", fontWeight: 600, cursor: "pointer" }}>Přidat a rezervovat</button>
                                     <button onClick={() => setAddStreet(null)} style={{ fontSize: 11, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.bg, color: T.textDim, cursor: "pointer" }}>Zpět</button>
                                   </div>
                                 </div>
                               ) : (
                                 <>
                                   {!unavail && <button onClick={() => setAddStreet({ carId: car.id, slotIndex: s.idx })} style={{ width: "100%", fontSize: 11.5, padding: "6px", borderRadius: 6, border: `1px solid ${T.info}55`, background: `${T.info}14`, color: T.info, cursor: "pointer", marginBottom: 7, fontFamily: "inherit" }}>+ Zákazník z ulice</button>}
-                                  {/* typy bloku */}
-                                  <div style={{ fontSize: 10.5, color: T.textDim, marginBottom: 4 }}>Blokovat vůz (přetažením natáhneš přes víc slotů):</div>
+                                  {/* typy bloku — klik na typ → výběr délky → zablokuje potřebný počet slotů */}
+                                  <div style={{ fontSize: 10.5, color: T.textDim, marginBottom: 4 }}>Blokovat vůz:</div>
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 7 }}>
                                     {CAR_BLOCKS.map((bt) => (
                                       <button key={bt.id}
-                                        onMouseDown={() => { setCellMenu(null); startPaint(car.id, bt.id, s.idx); }}
-                                        onClick={() => blockCell(car.id, s.idx, bt.id)}
-                                        style={{ fontSize: 11, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.warn}44`, background: `${T.warn}14`, color: T.warn, cursor: "pointer", fontFamily: "inherit" }}>{bt.icon} {bt.label}</button>
+                                        onClick={() => setBlockPick(blockPick?.type === bt.id ? null : { type: bt.id })}
+                                        style={{ fontSize: 11, padding: "5px 8px", borderRadius: 6, border: `1px solid ${blockPick?.type === bt.id ? T.warn : T.warn + "44"}`, background: blockPick?.type === bt.id ? `${T.warn}33` : `${T.warn}14`, color: T.warn, cursor: "pointer", fontFamily: "inherit" }}>{bt.icon} {bt.label}</button>
                                     ))}
                                   </div>
+                                  {blockPick && (() => {
+                                    const bt = CAR_BLOCKS.find((b) => b.id === blockPick.type);
+                                    return (
+                                      <div style={{ marginBottom: 7, padding: 7, background: T.bg, borderRadius: 7, border: `1px solid ${T.warn}44` }}>
+                                        <div style={{ fontSize: 10.5, color: T.textDim, marginBottom: 5 }}>{bt.icon} {bt.label} — délka:</div>
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                          {bt.mins.map((m) => (
+                                            <button key={m}
+                                              onClick={() => { blockCell(car.id, s.idx, bt.id, m); setBlockPick(null); }}
+                                              style={{ fontSize: 11, padding: "5px 9px", borderRadius: 6, border: `1px solid ${T.warn}55`, background: `${T.warn}18`, color: T.warn, cursor: "pointer", fontFamily: "inherit" }}>{m} min</button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  })()}
                                   <div style={{ display: "flex", gap: 5 }}>
                                     {filled && <button onClick={() => clearCell(car.id, s.idx)} style={{ flex: 1, fontSize: 11, padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.danger}55`, background: `${T.danger}18`, color: T.danger, cursor: "pointer", fontFamily: "inherit" }}>Uvolnit</button>}
-                                    <button onClick={() => setCellMenu(null)} style={{ fontSize: 11, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.bg, color: T.textDim, cursor: "pointer", fontFamily: "inherit" }}>Zavřít</button>
+                                    <button onClick={() => { setCellMenu(null); setBlockPick(null); }} style={{ fontSize: 11, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.bg, color: T.textDim, cursor: "pointer", fontFamily: "inherit" }}>Zavřít</button>
                                   </div>
                                 </>
                               )}
@@ -4499,6 +4544,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
                     <div key={p.id} style={{ fontSize: 12, padding: "5px 11px", borderRadius: 8, border: `1px solid ${cnt ? T.greenLite + "55" : T.line}`, background: cnt ? `${T.greenLite}14` : T.bg, color: cnt ? T.cream : T.textDim }}>
                       {p.data[nameId] || "—"} {cnt > 0 && <span style={{ color: T.brass, fontWeight: 600 }}>· {cnt}× vůz</span>}
                       {p.fromStreet && <span style={{ color: T.info, fontSize: 10, marginLeft: 3 }}>z ulice</span>}
+                      {p.needsSurvey && <span style={{ color: T.warn, fontSize: 10, marginLeft: 3 }} title="Bez e-mailu — dotazník předat osobně">📋 dotazník osobně</span>}
                     </div>
                   );
                 })}
