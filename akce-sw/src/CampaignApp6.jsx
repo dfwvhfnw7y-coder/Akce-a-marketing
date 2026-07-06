@@ -13,12 +13,24 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.13";
-const APP_BUILD = "2026-07-06 21:18";
+const APP_VERSION = "0.14";
+const APP_BUILD = "2026-07-06 21:46";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.14",
+    date: "6. 7. 2026",
+    title: "Testovací jízdy — potvrzené jízdy jsou nedotknutelné",
+    items: [
+      "🛡️ Potvrzená jízda = smlouva. Zákazník, který potvrdil účast (stav „Potvrzen“), má svůj čas z pozvánky závazně — appka ho nikdy sama neposune. V mřížce má ✓.",
+      "⛽ Blok se před potvrzenou jízdou zkrátí. Když dáš nabíjení na 30 min, ale za 20 min už jede potvrzený zákazník, blok se zkrátí a appka ti řekne, že se vůz nemusí stihnout. Musíš to vyřešit ručně (jiné auto / delší pauza jinde).",
+      "⏰ Zpoždění vozu („jezdí od…“) potvrzené jízdy nepřepíše — ale hlasitě varuje. Když auto přijede pozdě a mělo v tu dobu jet potvrzeného zákazníka, appka to červeně označí („vůz nedojede!“) a vypíše, koho se to týká. Rozhodnutí je na tobě.",
+      "🔢 Nové počítadlo kapacity: kolik jízd, kolik volných slotů, kolik sežraly bloky a zpoždění. Vidíš hned, jestli se ti ještě všichni vejdou — ideálně před odesláním pozvánek.",
+      "🗑️ Uvolnění potvrzené jízdy si teď vyžádá potvrzení, ať ji omylem nesmažeš.",
+    ],
+  },
   {
     version: "0.13",
     date: "6. 7. 2026",
@@ -29,7 +41,7 @@ const CHANGELOG = [
       "☕ Pauza má nastavitelnou délku 10/20/30/60 min. Tankování 10/20/30, nabíjení 30/60/90 (nabíjení chvíli trvá 🙂).",
       "📋 Zákazník z ulice: přibylo pole na e-mail a volba „vytvořit lead“. Bez e-mailu se označí, že dotazník je potřeba předat osobně.",
       "❗ Čas na přípravu vozu nově i 30 min.",
-      "🪟 Okno buňky se přizpůsobí výšce — tlačítko Zavřít je vždy dostupné (dřív se schovávalo za pauzou).",
+      "🪟 Okno buňky se otevírá jako plovoucí (už ho neusekává posuvník tabulky) — u spodních řádků se rozbalí nahoru, všechna tlačítka jsou vidět.",
     ],
   },
   {
@@ -4256,6 +4268,15 @@ function TestDriveGrid({ c, role, onUpdate }) {
     return slot.from >= h * 60 + m;
   };
 
+  // CHRÁNĚNÁ jízda = rezervace zákazníka, který je ve stavu "potvrzen".
+  // To je smlouva z pozvánky — nesmí ji přepsat blok ani zpoždění.
+  const confirmedIds = new Set(c.parts.filter((p) => p.state === "potvrzen").map((p) => p.id));
+  const isProtectedRes = (r) => !!r && !r.blocked && !!r.partId && confirmedIds.has(r.partId);
+  const protectedAt = (carId, slotIndex) => {
+    const r = reservations.find((x) => x.carId === carId && x.slotIndex === slotIndex);
+    return isProtectedRes(r) ? r : null;
+  };
+
   const patchRes = (fn) => onUpdate((camp) => ({ ...camp, reservations: fn(camp.reservations || []) }));
 
   const bookCustomer = (carId, slotIndex, partId) => {
@@ -4268,22 +4289,47 @@ function TestDriveGrid({ c, role, onUpdate }) {
     setCellMenu(null);
   };
   // zablokuje jeden nebo víc po sobě jdoucích slotů podle zvolené délky (min).
-  // Kolik slotů = zaokrouhleno nahoru z minut / (délka jízdy + příprava), min. 1.
+  // Kolik slotů = zaokrouhleno nahoru z minut / délka slotu, min. 1.
+  // PRAVIDLO: potvrzenou jízdu blok nepřepíše — zkrátí se před ní.
   const slotSpan = c.driveInterval || 30; // "užitná" délka jednoho slotu (bez prep)
   const blockCell = (carId, slotIndex, type = "pauza", mins = null) => {
-    const count = mins ? Math.max(1, Math.ceil(mins / slotSpan)) : 1;
+    const wanted = mins ? Math.max(1, Math.ceil(mins / slotSpan)) : 1;
     const maxIdx = slots.length ? slots[slots.length - 1].idx : slotIndex;
+
+    // kolik slotů reálně zablokujeme? Zastavíme se na první potvrzené jízdě.
+    let usable = 0;
+    let hitConfirmed = null; // jméno zákazníka, kvůli kterému jsme zkrátili
+    for (let k = 0; k < wanted; k++) {
+      const idx = slotIndex + k;
+      if (idx > maxIdx) break;
+      const prot = protectedAt(carId, idx);
+      if (prot) { hitConfirmed = custName(prot.partId); break; }
+      usable++;
+    }
+
+    if (usable === 0) {
+      const btLabel = blockLabel(type);
+      alert(`Nelze blokovat: v tomto slotu jede potvrzený zákazník${hitConfirmed ? ` (${hitConfirmed})` : ""}. Nejdřív ho přesuň, nebo vyber jiný čas.`);
+      return;
+    }
+
     patchRes((rs) => {
       let out = [...rs];
-      for (let k = 0; k < count; k++) {
+      for (let k = 0; k < usable; k++) {
         const idx = slotIndex + k;
-        if (idx > maxIdx) break;
         out = out.filter((r) => !(r.carId === carId && r.slotIndex === idx));
         out.push({ id: uid(), carId, slotIndex: idx, partId: null, blocked: true, note: type });
       }
       return out;
     });
+
+    // zkrácení? Dej vědět, ať se s tím dá počítat.
+    if (usable < wanted && hitConfirmed) {
+      const realMin = usable * slotSpan;
+      alert(`${blockLabel(type)} zkráceno na ${realMin} min — v ${minToHM(slots.find((s) => s.idx === slotIndex + usable)?.from || 0)} už jede potvrzený zákazník (${hitConfirmed}). Vůz se nemusí stihnout, vyřeš to ručně (delší pauza jinde / jiné auto).`);
+    }
     setCellMenu(null);
+    setBlockPick(null);
   };
   const clearCell = (carId, slotIndex) => {
     patchRes((rs) => rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)));
@@ -4340,6 +4386,12 @@ function TestDriveGrid({ c, role, onUpdate }) {
 
   const totalBooked = reservations.filter((r) => !r.blocked).length;
   const totalCells  = cars.length * slots.length;
+  const totalBlocked = reservations.filter((r) => r.blocked).length;
+  // kolik slotů sežralo zpoždění ("jezdí od") napříč všemi vozy
+  const unavailCells = cars.reduce((acc, car) => acc + slots.filter((s) => !carAvailable(car, s)).length, 0);
+  // volné = celkem − obsazené jízdou − blok − nedostupné (bez dvojího počítání: blok/rezervace v nedostupném slotu je vzácný, ale odečteme reálně obsazené)
+  const usedCells = reservations.length; // rezervace i bloky zabírají buňku
+  const freeCells = Math.max(0, totalCells - usedCells - unavailCells + reservations.filter((r) => { const car = cars.find((x) => x.id === r.carId); const slot = slots.find((s) => s.idx === r.slotIndex); return car && slot && !carAvailable(car, slot); }).length);
 
   return (
     <div>
@@ -4357,8 +4409,12 @@ function TestDriveGrid({ c, role, onUpdate }) {
             {PREP_TIMES.map((m) => <option key={m} value={m}>{m === 0 ? "bez rezervy" : `+${m} min`}</option>)}
           </select>
         </div>
-        <div style={{ fontSize: 12, color: T.textDim, display: "flex", alignItems: "center", gap: 6 }}>
-          <Clock size={13} color={T.brass} />{cars.length} vozů · {slots.length} slotů · {totalBooked}/{totalCells} obsazeno{!canEdit ? " · pouze prohlížení" : ""}
+        <div style={{ fontSize: 12, color: T.textDim, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <Clock size={13} color={T.brass} />{cars.length} vozů · {totalBooked}/{totalCells} jízd
+          <span style={{ color: freeCells > 0 ? T.greenLite : T.danger, fontWeight: 600 }}>· volno: {freeCells}</span>
+          {totalBlocked > 0 && <span style={{ color: T.warn }}>· bloky: {totalBlocked}</span>}
+          {unavailCells > 0 && <span style={{ color: T.warn }}>· zpoždění: {unavailCells}</span>}
+          {!canEdit ? " · pouze prohlížení" : ""}
         </div>
         {canEdit && <Btn kind="ghost" icon={Download} small onClick={() => exportTestDrive(c, cars, slots, resAt, custName)}>Export</Btn>}
       </div>
@@ -4379,7 +4435,23 @@ function TestDriveGrid({ c, role, onUpdate }) {
               <input value={car.note} onChange={(e) => updCar(car.id, { note: e.target.value })} placeholder="poznámka…" disabled={!canEdit} style={{ ...inputStyle, flex: 2, minWidth: 120, padding: "5px 8px", fontSize: 12.5 }} />
               <div style={{ display: "flex", alignItems: "center", gap: 5 }} title="Vozidlo je k dispozici až od tohoto času (např. VIP/služební vůz dorazí později)">
                 <span style={{ fontSize: 11, color: car.availFrom ? T.warn : T.textDim, whiteSpace: "nowrap" }}>jezdí od</span>
-                <input type="time" value={car.availFrom || ""} onChange={(e) => updCar(car.id, { availFrom: e.target.value || null })} disabled={!canEdit} style={{ ...inputStyle, width: 92, padding: "5px 6px", fontSize: 12, borderColor: car.availFrom ? T.warn + "66" : T.line }} />
+                <input type="time" value={car.availFrom || ""} onChange={(e) => {
+                  const v = e.target.value || null;
+                  updCar(car.id, { availFrom: v });
+                  // varování: nezablokuje to potvrzené jízdy? (nepřesouváme je — jen upozorníme)
+                  if (v) {
+                    const [h, m] = v.split(":").map(Number);
+                    const cut = h * 60 + m;
+                    const clashes = reservations
+                      .filter((r) => r.carId === car.id && isProtectedRes(r))
+                      .map((r) => ({ r, slot: slots.find((s) => s.idx === r.slotIndex) }))
+                      .filter((x) => x.slot && x.slot.from < cut);
+                    if (clashes.length) {
+                      const list = clashes.map((x) => `${minToHM(x.slot.from)} — ${custName(x.r.partId)}`).join("\n");
+                      alert(`⚠️ Vůz přijede až v ${v}, ale před tím má potvrzené jízdy:\n\n${list}\n\nTyhle jízdy appka nepřesune — vyřeš je ručně (jiné auto / jiný čas). Zákazníci mají čas v pozvánce.`);
+                    }
+                  }
+                }} disabled={!canEdit} style={{ ...inputStyle, width: 92, padding: "5px 6px", fontSize: 12, borderColor: car.availFrom ? T.warn + "66" : T.line }} />
               </div>
               {canEdit && <button onClick={() => removeCar(car.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger, padding: 4 }}><Trash2 size={14} /></button>}
             </div>
@@ -4421,6 +4493,8 @@ function TestDriveGrid({ c, role, onUpdate }) {
                     const filled = !!r;
                     const isBlock = r?.blocked;
                     const unavail = !carAvailable(car, s);
+                    const protectedRes = isProtectedRes(r);
+                    const conflict = protectedRes && unavail; // potvrzená jízda, ale auto v tu dobu nedojede
                     const menuOpen = canEdit && cellMenu && cellMenu.carId === car.id && cellMenu.slotIndex === s.idx;
                     return (
                       <td key={s.idx}
@@ -4431,12 +4505,12 @@ function TestDriveGrid({ c, role, onUpdate }) {
                           draggable={canEdit && filled && !isBlock}
                           onDragStart={(e) => { if (canEdit && filled && !isBlock) { setDragRes(r.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", r.id); } }}
                           onDragEnd={() => setDragRes(null)}
-                          onClick={() => { if (canEdit) { setBlockPick(null); setCellMenu(menuOpen ? null : { carId: car.id, slotIndex: s.idx }); } }}
+                          onClick={(e) => { if (canEdit) { setBlockPick(null); if (menuOpen) { setCellMenu(null); } else { const rect = e.currentTarget.getBoundingClientRect(); setCellMenu({ carId: car.id, slotIndex: s.idx, x: rect.left, y: rect.bottom }); } } }}
                           style={{
                             minWidth: 82, minHeight: 44, borderRadius: 7, padding: "6px 7px", cursor: canEdit ? "pointer" : "default",
                             position: "relative", overflow: "hidden",
-                            background: unavail ? "repeating-linear-gradient(45deg,#2a2a2a,#2a2a2a 5px,#222 5px,#222 10px)" : isBlock ? `${T.warn}22` : filled ? `${T.greenLite}1e` : T.bg,
-                            border: `1px solid ${unavail ? "#3a3a3a" : isBlock ? T.warn + "66" : filled ? T.greenLite + "66" : T.line}`,
+                            background: conflict ? `${T.danger}22` : unavail ? "repeating-linear-gradient(45deg,#2a2a2a,#2a2a2a 5px,#222 5px,#222 10px)" : isBlock ? `${T.warn}22` : filled ? `${T.greenLite}1e` : T.bg,
+                            border: `1px solid ${conflict ? T.danger : unavail ? "#3a3a3a" : isBlock ? T.warn + "66" : filled ? T.greenLite + "66" : T.line}`,
                             display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, opacity: unavail && !filled ? 0.5 : 1,
                           }}>
                           {/* pruh přípravy vozu */}
@@ -4445,7 +4519,8 @@ function TestDriveGrid({ c, role, onUpdate }) {
                             <span style={{ fontSize: 11.5, color: T.warn, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{blockIcon(r.note)} {blockLabel(r.note)}</span>
                           ) : filled ? (
                             <>
-                              <span style={{ fontSize: 11.5, fontWeight: 600, color: T.cream, lineHeight: 1.2, wordBreak: "break-word" }}>{custName(r.partId)}</span>
+                              <span style={{ fontSize: 11.5, fontWeight: 600, color: conflict ? T.danger : T.cream, lineHeight: 1.2, wordBreak: "break-word" }}>{conflict && "⚠️ "}{protectedRes && "✓ "}{custName(r.partId)}</span>
+                              {conflict && <span style={{ fontSize: 9, color: T.danger, fontWeight: 600 }}>vůz nedojede!</span>}
                               {custResCount(r.partId) > 1 && <span style={{ fontSize: 9.5, color: T.brass }}>{custResCount(r.partId)}× vůz</span>}
                               {c.parts.find((p) => p.id === r.partId)?.fromStreet && <span style={{ fontSize: 9, color: T.info }}>z ulice</span>}
                             </>
@@ -4457,10 +4532,18 @@ function TestDriveGrid({ c, role, onUpdate }) {
                         </div>
 
                         {/* mini-menu buňky */}
-                        {menuOpen && (
-                          <div style={{ position: "absolute", top: 46, left: 0, zIndex: 30 }}>
-                            <div style={{ background: T.panel2, border: `1px solid ${T.brass}55`, borderRadius: 9, padding: 9, minWidth: 210, maxHeight: "60vh", overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
+                        {menuOpen && (() => {
+                          // fixed pozice u kliknuté buňky → neusekává se scroll kontejnerem.
+                          const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+                          const openUp = cellMenu.y > vh * 0.55; // blízko spodku → otevři nahoru
+                          const pos = openUp
+                            ? { bottom: Math.max(8, vh - cellMenu.y + 44), left: cellMenu.x }
+                            : { top: cellMenu.y + 4, left: cellMenu.x };
+                          return (
+                          <div style={{ position: "fixed", ...pos, zIndex: 60 }}>
+                            <div style={{ background: T.panel2, border: `1px solid ${T.brass}55`, borderRadius: 9, padding: 9, minWidth: 210, maxWidth: 240, maxHeight: "70vh", overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
                               <div style={{ fontSize: 11, color: T.textDim, marginBottom: 7 }}>{car.model} · {minToHM(s.from)}{unavail ? " · vůz nedostupný" : ""}</div>
+                              {protectedRes && <div style={{ fontSize: 10.5, color: T.greenLite, marginBottom: 7, padding: "5px 7px", background: `${T.greenLite}14`, border: `1px solid ${T.greenLite}44`, borderRadius: 6, lineHeight: 1.4 }}>✓ Potvrzená jízda z pozvánky — {custName(r.partId)} má tento čas závazně. Blok ani zpoždění ji nepřepíšou.</div>}
                               {!r?.blocked && !unavail && !addStreet && (
                                 <select
                                   value={r?.partId || ""}
@@ -4517,14 +4600,15 @@ function TestDriveGrid({ c, role, onUpdate }) {
                                     );
                                   })()}
                                   <div style={{ display: "flex", gap: 5 }}>
-                                    {filled && <button onClick={() => clearCell(car.id, s.idx)} style={{ flex: 1, fontSize: 11, padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.danger}55`, background: `${T.danger}18`, color: T.danger, cursor: "pointer", fontFamily: "inherit" }}>Uvolnit</button>}
+                                    {filled && <button onClick={() => { if (protectedRes && !window.confirm(`${custName(r.partId)} má potvrzenou jízdu z pozvánky. Opravdu ji uvolnit? Zákazník má tento čas v pozvánce.`)) return; clearCell(car.id, s.idx); }} style={{ flex: 1, fontSize: 11, padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.danger}55`, background: `${T.danger}18`, color: T.danger, cursor: "pointer", fontFamily: "inherit" }}>Uvolnit</button>}
                                     <button onClick={() => { setCellMenu(null); setBlockPick(null); }} style={{ fontSize: 11, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.bg, color: T.textDim, cursor: "pointer", fontFamily: "inherit" }}>Zavřít</button>
                                   </div>
                                 </>
                               )}
                             </div>
                           </div>
-                        )}
+                          );
+                        })()}
                       </td>
                     );
                   })}
