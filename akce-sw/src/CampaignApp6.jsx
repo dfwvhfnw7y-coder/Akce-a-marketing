@@ -13,12 +13,32 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.16";
-const APP_BUILD = "2026-07-08 20:33";
+const APP_VERSION = "0.18";
+const APP_BUILD = "__BUILD__";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.18",
+    date: "8. 7. 2026",
+    title: "Prioritizace leadů — tier skóre, rizikový přehled a follow-up",
+    items: [
+      "🥇 Každý lead teď má štítek tieru (1–3) podle kombinace úrovně zájmu, orientační hodnoty modelu a stáří leadu.",
+      "⚠️ Nahoře v Leadech přibyl rizikový pruh — upozorní na leady bez follow-upu 3+ dny, s propadlým termínem follow-upu nebo s vysokým zájmem bez přiřazeného prodejce.",
+      "⏰ U každého leadu jde nastavit follow-up (datum, poznámka, hotovo) přímo v kartě.",
+      "📋 Tlačítko shrnutí zkopíruje formátovaný přehled leadu (pro CRM) do schránky a potvrdí zkopírování.",
+    ],
+  },
+  {
+    version: "0.17",
+    date: "7. 7. 2026",
+    title: "Ochrana potvrzených jízd — poslední skuliny + oprava exportů rozpočtu",
+    items: [
+      "🛡️ Potvrzenou jízdu už nepřepíše ani zákazník z ulice, ani vymazání přes výběr v buňce — appka se vždy zeptá nebo to odmítne. Ochrana teď platí ve všech cestách (přiřazení, blok, přesun, uvolnění, z ulice).",
+      "💰 Opraven PDF export rozpočtu s grafem a tabulka nákladů v reportu — počítaly ze starých políček a ukazovaly prázdno/nuly. Teď sedí s tabulkou rozpočtu (plán vs. skutečnost).",
+    ],
+  },
   {
     version: "0.16",
     date: "7. 7. 2026",
@@ -3464,6 +3484,96 @@ const POPULAR_MODELS = [
   "Sprinter 319 CDI","Vito 116 CDI","V 300d","AMG GT 63 S",
 ];
 
+/* -- skorovani leadu (tier) --
+   kombinuje uroven zajmu + orientacni hodnotu modelu + stari leadu */
+const MODEL_VALUE_HIGH = new Set(["S 500 L","AMG GT 63 S","GLS 400d","EQS 450+","EQS 580 4MATIC","G 500"]);
+const MODEL_VALUE_LOW  = new Set(["EQB 300 4MATIC","EQA 250+","Sprinter 319 CDI","Vito 116 CDI"]);
+const modelValueScore = (model) => MODEL_VALUE_HIGH.has(model) ? 3 : MODEL_VALUE_LOW.has(model) ? 1 : 2;
+
+const daysSince = (dateStr) => {
+  if (!dateStr) return 0;
+  const ms = new Date(new Date().toDateString()) - new Date(dateStr);
+  return Math.max(0, Math.floor(ms / 86400000));
+};
+
+const LEAD_TIERS = [
+  { id: "t1", min: 7, label: "Tier 1", icon: "🥇", color: T.brass },
+  { id: "t2", min: 5, label: "Tier 2", icon: "🥈", color: T.info },
+  { id: "t3", min: 0, label: "Tier 3", icon: "🥉", color: T.textDim },
+];
+
+const leadTierScore = (lead) => {
+  const interestScore = { velky: 3, zjistit: 2, informace: 1 }[lead.interest] || 1;
+  const modelScore = modelValueScore(lead.model);
+  const age = daysSince(lead.at);
+  const recencyScore = age <= 3 ? 3 : age <= 7 ? 2 : 1;
+  return interestScore + modelScore + recencyScore;
+};
+
+const leadTier = (lead) => {
+  const score = leadTierScore(lead);
+  return LEAD_TIERS.find(t => score >= t.min) || LEAD_TIERS[LEAD_TIERS.length - 1];
+};
+
+/* -- rizikove leady: chybejici/propadly follow-up, nebo vysoky zajem bez prodejce -- */
+const leadRiskReasons = (lead) => {
+  const reasons = [];
+  const fu = lead.followUp || {};
+  const age = daysSince(lead.at);
+  if (!fu.date && age >= 3) reasons.push("bez follow-upu 3+ dny");
+  if (fu.date && !fu.done && new Date(fu.date) < new Date(new Date().toDateString())) reasons.push("follow-up propadl");
+  if (lead.interest === "velky" && !lead.assignedTo) reasons.push("vysoký zájem bez prodejce");
+  return reasons;
+};
+
+const buildLeadSummary = (lead, assignedUser) => {
+  const lvl = INTEREST_LEVELS.find(x => x.id === lead.interest);
+  const tier = leadTier(lead);
+  const fu = lead.followUp || {};
+  const lines = [
+    `👤 ${lead.name}${lead.phone ? " · " + lead.phone : ""}`,
+    `🚗 ${lead.model} — ${lvl ? lvl.label : lead.interest} (${tier.icon} ${tier.label})`,
+    lead.note ? `💬 ${lead.note}` : null,
+    `📅 Zadáno: ${lead.at} · zadal: ${lead.addedBy}`,
+    assignedUser ? `📌 Přiřazeno: ${assignedUser.name}` : null,
+    fu.date ? `⏰ Follow-up: ${fu.date}${fu.done ? " (hotovo)" : ""}${fu.note ? " — " + fu.note : ""}` : null,
+  ].filter(Boolean);
+  return lines.join("\n");
+};
+
+function FollowUpRow({ lead, onSave }) {
+  const fu = lead.followUp || {};
+  const [date, setDate] = useState(fu.date || "");
+  const [note, setNote] = useState(fu.note || "");
+  const [done, setDone] = useState(!!fu.done);
+  const [flash, setFlash] = useState(false);
+
+  const dirty = date !== (fu.date || "") || note !== (fu.note || "") || done !== !!fu.done;
+
+  const save = () => {
+    onSave({ date: date || null, note: note.trim(), done });
+    setFlash(true);
+    setTimeout(() => setFlash(false), 1200);
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+      <Clock size={12} color={T.textDim} />
+      <input type="date" value={date || ""} onChange={e => setDate(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "3px 6px", fontSize: 11 }} />
+      <input type="text" placeholder="poznámka k follow-upu…" value={note} onChange={e => setNote(e.target.value)} style={{ ...inputStyle, flex: 1, minWidth: 100, padding: "3px 8px", fontSize: 11 }} />
+      <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.textDim, cursor: "pointer" }}>
+        <input type="checkbox" checked={done} onChange={e => setDone(e.target.checked)} /> hotovo
+      </label>
+      {dirty && (
+        <button onClick={save} title="Uložit follow-up" style={{ background: "none", border: "none", cursor: "pointer", color: T.info, display: "flex", alignItems: "center" }}>
+          <Check size={13} />
+        </button>
+      )}
+      {flash && <span style={{ fontSize: 10.5, color: T.info }}>uloženo ✓</span>}
+    </div>
+  );
+}
+
 function LeadsTab({ c, role, onUpdate }) {
   const [open, setOpen] = useState(false);
   const leads = c.leads || [];
@@ -3481,11 +3591,41 @@ function LeadsTab({ c, role, onUpdate }) {
   const assignLead = (id, uid2) => onUpdate((camp) => ({
     ...camp, leads: (camp.leads || []).map(l => l.id === id ? { ...l, assignedTo: uid2 || null } : l),
   }));
+  const setFollowUp = (id, patch) => onUpdate((camp) => ({
+    ...camp, leads: (camp.leads || []).map(l => l.id === id ? { ...l, followUp: { ...(l.followUp || {}), ...patch } } : l),
+  }));
+
+  const [copiedId, setCopiedId] = useState(null);
+  const copySummary = (lead) => {
+    const assignedUser = USERS_SEED.find(u => u.id === lead.assignedTo);
+    navigator.clipboard?.writeText(buildLeadSummary(lead, assignedUser));
+    setCopiedId(lead.id);
+    setTimeout(() => setCopiedId(id2 => id2 === lead.id ? null : id2), 1500);
+  };
 
   const byLevel = (lvl) => leads.filter(l => l.interest === lvl);
+  const riskyLeads = leads
+    .map(l => ({ lead: l, reasons: leadRiskReasons(l) }))
+    .filter(x => x.reasons.length > 0);
 
   return (
     <div>
+      {/* rizikový pruh */}
+      {riskyLeads.length > 0 && (
+        <div style={{ background: `${T.danger}14`, border: `1px solid ${T.danger}55`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: T.danger, marginBottom: riskyLeads.length ? 6 : 0 }}>
+            <AlertTriangle size={15} /> {riskyLeads.length} {riskyLeads.length === 1 ? "lead vyžaduje" : "leadů vyžaduje"} pozornost
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {riskyLeads.map(({ lead, reasons }) => (
+              <div key={lead.id} style={{ fontSize: 12, color: T.creamDim }}>
+                <b style={{ color: T.cream }}>{lead.name}</b> · {lead.model} — {reasons.join(", ")}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* souhrn karet */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", gap: 10 }}>
@@ -3513,12 +3653,14 @@ function LeadsTab({ c, role, onUpdate }) {
             </div>
             {group.map(lead => {
               const assignedUser = USERS_SEED.find(u => u.id === lead.assignedTo);
+              const tier = leadTier(lead);
               return (
                 <div key={lead.id} style={{ background: T.panel, border: `1px solid ${lvl.color}44`, borderRadius: 10, padding: "13px 15px", marginBottom: 8, display: "flex", alignItems: "flex-start", gap: 13 }}>
                   <div style={{ width: 38, height: 38, borderRadius: 9, background: lvl.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{lvl.icon}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 3 }}>
                       <span style={{ fontWeight: 600, fontSize: 14 }}>{lead.name}</span>
+                      <span title={`skóre ${leadTierScore(lead)}/9`} style={{ fontSize: 10.5, color: tier.color, background: `${tier.color}18`, border: `1px solid ${tier.color}55`, padding: "1px 7px", borderRadius: 9 }}>{tier.icon} {tier.label}</span>
                       {lead.isGuest && <span style={{ fontSize: 10.5, color: T.warn, background: `${T.warn}18`, border: `1px solid ${T.warn}44`, padding: "1px 7px", borderRadius: 9 }}>host z venku</span>}
                       {lead.phone && <span style={{ fontSize: 12, color: T.textDim }}>{lead.phone}</span>}
                     </div>
@@ -3541,12 +3683,19 @@ function LeadsTab({ c, role, onUpdate }) {
                         <span style={{ fontSize: 11.5, color: T.info }}>→ {assignedUser.name}</span>
                       ) : null}
                     </div>
+                    <FollowUpRow lead={lead} onSave={(patch) => setFollowUp(lead.id, patch)} />
                   </div>
-                  {canEdit && (
-                    <button onClick={() => removeLead(lead.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger, flexShrink: 0 }}>
-                      <Trash2 size={14} />
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    <button onClick={() => copySummary(lead)} title="Zkopírovat shrnutí pro CRM" style={{ background: "none", border: "none", cursor: "pointer", color: copiedId === lead.id ? T.info : T.textDim, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                      {copiedId === lead.id ? <Check size={14} /> : <ClipboardList size={14} />}
+                      {copiedId === lead.id && <span style={{ fontSize: 9 }}>zkopírováno</span>}
                     </button>
-                  )}
+                    {canEdit && (
+                      <button onClick={() => removeLead(lead.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger }}>
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -4096,33 +4245,37 @@ function ReportTab({ c }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
             <thead>
               <tr style={{ background: T.panel2 }}>
-                {["Název", "Dodavatel", "Poznámka", "Bez DPH", "DPH %", "S DPH", "Typ"].map((h) => (
+                {["Název", "Dodavatel", "DPH %", "Plán s DPH", "Reál s DPH", "Rozdíl"].map((h) => (
                   <th key={h} style={{ textAlign: "left", padding: "8px 12px", color: T.textDim, fontWeight: 500, fontSize: 11 }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {(c.budget?.items || []).map((item) => (
-                <tr key={item.id} style={{ borderTop: `1px solid ${T.line}`, background: item.isReal ? `${T.greenLite}0c` : "transparent" }}>
+              {(c.budget?.items || []).map((item) => {
+                const planN = num(item.planNet ?? item.amountNet ?? 0);
+                const realN = num(item.realNet ?? 0);
+                const planG = withVat(planN, item.vatRate);
+                const realG = withVat(realN, item.vatRate);
+                const hasReal = item.realNet !== "" && item.realNet != null;
+                const d = hasReal ? realG - planG : null;
+                return (
+                <tr key={item.id} style={{ borderTop: `1px solid ${T.line}` }}>
                   <td style={{ padding: "8px 12px", fontWeight: 500 }}>{item.name || "—"}</td>
                   <td style={{ padding: "8px 12px", color: T.creamDim }}>{item.supplier || "—"}</td>
-                  <td style={{ padding: "8px 12px", color: T.textDim, fontSize: 11 }}>{item.note || "—"}</td>
-                  <td style={{ padding: "8px 12px" }}>{czk(item.amountNet)}</td>
                   <td style={{ padding: "8px 12px" }}>{item.vatRate}%</td>
-                  <td style={{ padding: "8px 12px", fontWeight: 600 }}>{czk(withVat(item.amountNet, item.vatRate))}</td>
-                  <td style={{ padding: "8px 12px" }}>
-                    <span style={{ fontSize: 11, color: item.isReal ? T.greenLite : T.info, border: `1px solid ${item.isReal ? T.greenLite : T.info}44`, borderRadius: 6, padding: "1px 7px" }}>
-                      {item.isReal ? "reálné" : "plán"}
-                    </span>
+                  <td style={{ padding: "8px 12px", color: T.info }}>{czk(planG)}</td>
+                  <td style={{ padding: "8px 12px", color: T.greenLite }}>{hasReal ? czk(realG) : "—"}</td>
+                  <td style={{ padding: "8px 12px", fontWeight: 600, color: d == null ? T.textDim : d > 0 ? T.danger : T.greenLite }}>
+                    {d == null ? "—" : (d > 0 ? "+" : "") + czk(d)}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               <tr style={{ borderTop: `2px solid ${T.line}`, background: T.panel2 }}>
                 <td colSpan={3} style={{ padding: "8px 12px", fontWeight: 600, color: T.cream }}>CELKEM</td>
-                <td style={{ padding: "8px 12px", color: T.info }}>{czk(t.expNet + t.realNet)}</td>
-                <td></td>
-                <td style={{ padding: "8px 12px", fontWeight: 700 }}>{czk(t.expGross + t.realGross)}</td>
-                <td></td>
+                <td style={{ padding: "8px 12px", color: T.info, fontWeight: 700 }}>{czk(t.expGross)}</td>
+                <td style={{ padding: "8px 12px", color: T.greenLite, fontWeight: 700 }}>{czk(t.realGross)}</td>
+                <td style={{ padding: "8px 12px", fontWeight: 700, color: (t.realGross - t.expGross) > 0 ? T.danger : T.greenLite }}>{((t.realGross - t.expGross) > 0 ? "+" : "") + czk(t.realGross - t.expGross)}</td>
               </tr>
             </tbody>
           </table>
@@ -4375,7 +4528,11 @@ function TestDriveGrid({ c, role, onUpdate }) {
     setCellMenu(null);
     setBlockPick(null);
   };
-  const clearCell = (carId, slotIndex) => {
+  const clearCell = (carId, slotIndex, force = false) => {
+    const existing = resAt(carId, slotIndex);
+    // ochrana potvrzené jízdy přímo ve funkci (platí pro všechny volající, ne jen tlačítko Uvolnit)
+    if (!force && isProtectedRes(existing) &&
+        !window.confirm(`${custName(existing.partId)} má potvrzenou jízdu z pozvánky. Opravdu ji uvolnit?`)) return;
     patchRes((rs) => rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)));
     setCellMenu(null);
   };
@@ -4407,6 +4564,12 @@ function TestDriveGrid({ c, role, onUpdate }) {
   // makeLead=true → založí i lead (aby se na něj nezapomnělo, když nemá e-mail na dotazník).
   const addStreetCustomer = (carId, slotIndex, name, phone, email, makeLead, model) => {
     if (!name.trim()) return;
+    // ochrana: nepřepiš potvrzenou jízdu (i zákazník z ulice musí respektovat smlouvu z pozvánky)
+    const existing = resAt(carId, slotIndex);
+    if (isProtectedRes(existing)) {
+      alert(`V tomto slotu má potvrzenou jízdu ${custName(existing.partId)}. Vyber jiný slot, nebo ho nejdřív uvolni.`);
+      return;
+    }
     const pid = uid();
     const hasEmail = !!email.trim();
     onUpdate((camp) => {
@@ -4654,7 +4817,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
                                     );
                                   })()}
                                   <div style={{ display: "flex", gap: 5 }}>
-                                    {filled && <button onClick={() => { if (protectedRes && !window.confirm(`${custName(r.partId)} má potvrzenou jízdu z pozvánky. Opravdu ji uvolnit? Zákazník má tento čas v pozvánce.`)) return; clearCell(car.id, s.idx); }} style={{ flex: 1, fontSize: 11, padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.danger}55`, background: `${T.danger}18`, color: T.danger, cursor: "pointer", fontFamily: "inherit" }}>Uvolnit</button>}
+                                    {filled && <button onClick={() => { if (protectedRes && !window.confirm(`${custName(r.partId)} má potvrzenou jízdu z pozvánky. Opravdu ji uvolnit? Zákazník má tento čas v pozvánce.`)) return; clearCell(car.id, s.idx, true); }} style={{ flex: 1, fontSize: 11, padding: "5px 6px", borderRadius: 6, border: `1px solid ${T.danger}55`, background: `${T.danger}18`, color: T.danger, cursor: "pointer", fontFamily: "inherit" }}>Uvolnit</button>}
                                     <button onClick={() => { setCellMenu(null); setBlockPick(null); }} style={{ fontSize: 11, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.line}`, background: T.bg, color: T.textDim, cursor: "pointer", fontFamily: "inherit" }}>Zavřít</button>
                                   </div>
                                 </>
@@ -4954,16 +5117,16 @@ function exportExcel(c) {
 }
 
 function exportBudgetPdf(c) {
-  const items = (c.budget?.items || []).filter(i => i.expNet || i.realNet);
-  const totalExp  = items.reduce((s, i) => s + Math.round((i.expNet||0) * (1 + (i.vat||0)/100)), 0);
-  const totalReal = items.reduce((s, i) => s + Math.round((i.realNet||0) * (1 + (i.vat||0)/100)), 0);
+  const items = (c.budget?.items || []).filter(i => (i.planNet ?? i.amountNet) || i.realNet);
+  const totalExp  = items.reduce((s, i) => s + Math.round(((i.planNet ?? i.amountNet)||0) * (1 + (i.vatRate||0)/100)), 0);
+  const totalReal = items.reduce((s, i) => s + Math.round((i.realNet||0) * (1 + (i.vatRate||0)/100)), 0);
   const colors = ["#c8a044","#2e7d54","#4e8fbd","#9068c8","#c4614e","#d4a03a","#256b46","#7a5c2e","#5a8a9f","#8a6ab0"];
   
   // Koláčový graf — SVG
-  const totalForPie = items.reduce((s,i) => s + Math.round((i.expNet||0)*(1+(i.vat||0)/100)), 0) || 1;
+  const totalForPie = items.reduce((s,i) => s + Math.round(((i.planNet ?? i.amountNet)||0)*(1+(i.vatRate||0)/100)), 0) || 1;
   let piePath = ""; let startAngle = 0;
   const pieSlices = items.map((item, idx) => {
-    const val = Math.round((item.expNet||0)*(1+(item.vat||0)/100));
+    const val = Math.round(((item.planNet ?? item.amountNet)||0)*(1+(item.vatRate||0)/100));
     const pct = val / totalForPie;
     const angle = pct * 2 * Math.PI;
     const x1 = 100 + 90 * Math.cos(startAngle);
@@ -4973,15 +5136,15 @@ function exportBudgetPdf(c) {
     const large = angle > Math.PI ? 1 : 0;
     const path = `M100,100 L${x1.toFixed(1)},${y1.toFixed(1)} A90,90 0 ${large},1 ${x2.toFixed(1)},${y2.toFixed(1)} Z`;
     startAngle += angle;
-    return { path, color: colors[idx % colors.length], label: item.label, val, pct: Math.round(pct*100) };
+    return { path, color: colors[idx % colors.length], label: (item.name||"—"), val, pct: Math.round(pct*100) };
   });
 
   const rows = items.map((i, idx) => {
-    const expG = Math.round((i.expNet||0)*(1+(i.vat||0)/100));
-    const realG = Math.round((i.realNet||0)*(1+(i.vat||0)/100));
+    const expG = Math.round(((i.planNet ?? i.amountNet)||0)*(1+(i.vatRate||0)/100));
+    const realG = Math.round((i.realNet||0)*(1+(i.vatRate||0)/100));
     const diff = realG - expG;
     return `<tr>
-      <td style="padding:7px 10px;border-bottom:1px solid #2a3f33">${i.label}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #2a3f33">${i.name||"—"}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #2a3f33;color:#888">${i.supplier||"—"}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #2a3f33;text-align:right;color:#4e8fbd">${expG.toLocaleString("cs-CZ")} Kč</td>
       <td style="padding:7px 10px;border-bottom:1px solid #2a3f33;text-align:right;color:#2e7d54">${i.realNet ? realG.toLocaleString("cs-CZ")+" Kč" : "—"}</td>
