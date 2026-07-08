@@ -13,12 +13,21 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.14";
-const APP_BUILD = "2026-07-06 21:46";
+const APP_VERSION = "0.15";
+const APP_BUILD = "2026-07-08 20:25";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.15",
+    date: "7. 7. 2026",
+    title: "Kritické opravy z auditu",
+    items: [
+      "💰 Oprava rozpočtu: dashboard a report počítaly plán a skutečnost špatně (dvě různá schémata položek). Teď sedí — plán i realita se čtou z jedné položky.",
+      "🛡️ Testovací jízdy: ošetřena poslední skulina v ochraně potvrzených jízd. Přes výběr zákazníka v buňce už nejde přepsat potvrzenou jízdu někoho jiného — appka na to upozorní.",
+    ],
+  },
   {
     version: "0.14",
     date: "6. 7. 2026",
@@ -345,11 +354,13 @@ const mkEqItem = () => ({ id: uid(), presetId: null, label: "", rentPrice: null,
 
 /* ── budget helpers ── */
 const budgetTotals = (items = []) => {
-  const exp  = items.filter((i) => !i.isReal);
-  const real = items.filter((i) => i.isReal);
-  const sumNet   = (a) => a.reduce((s, i) => s + num(i.amountNet), 0);
-  const sumGross = (a) => a.reduce((s, i) => s + withVat(i.amountNet, i.vatRate), 0);
-  return { expNet: sumNet(exp), expGross: sumGross(exp), realNet: sumNet(real), realGross: sumGross(real) };
+  // JEDNO schéma: každá položka má planNet (plán) i realNet (skutečnost).
+  // Fallback na staré amountNet kvůli seed datům. Shodné s BudgetTab, ať dashboard sedí.
+  const planNet   = items.reduce((s, i) => s + num(i.planNet ?? i.amountNet ?? 0), 0);
+  const realNet   = items.reduce((s, i) => s + num(i.realNet ?? 0), 0);
+  const planGross = items.reduce((s, i) => s + withVat(i.planNet ?? i.amountNet ?? 0, i.vatRate), 0);
+  const realGross = items.reduce((s, i) => s + withVat(i.realNet ?? 0, i.vatRate), 0);
+  return { expNet: planNet, expGross: planGross, realNet, realGross };
 };
 
 /* ── base fields ── */
@@ -4281,6 +4292,11 @@ function TestDriveGrid({ c, role, onUpdate }) {
 
   const bookCustomer = (carId, slotIndex, partId) => {
     const existing = resAt(carId, slotIndex);
+    // ochrana: nepřepiš potvrzenou jízdu JINÉHO zákazníka (smlouva z pozvánky)
+    if (isProtectedRes(existing) && existing.partId !== partId) {
+      alert(`V tomto slotu má potvrzenou jízdu ${custName(existing.partId)}. Nejdřív ji uvolni, pak sem přiřaď někoho jiného.`);
+      return;
+    }
     if (partId && custBusyAt(partId, slotIndex, existing?.id)) {
       alert("Tento zákazník už v tomto čase jede jiný vůz. Jeden zákazník nemůže testovat dvě auta najednou.");
       return;
