@@ -13,12 +13,25 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.15";
-const APP_BUILD = "2026-07-08 20:25";
+const APP_VERSION = "0.16";
+const APP_BUILD = "2026-07-08 20:33";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.16",
+    date: "7. 7. 2026",
+    title: "Další opravy z auditu (jízdy, bezpečnost exportů)",
+    items: [
+      "👻 Zrušený/odhlášený zákazník už nezůstane „duchem“ v mřížce jízd — jeho rezervace se automaticky uklidí (při zrušení, nedostavení i smazání).",
+      "🔢 Přesnější počítadlo kapacity: „volno“ se počítá přímo z mřížky, takže sedí i při kombinaci bloků a zpožděných vozů.",
+      "🛡️ Přetažení potvrzené jízdy na jiný čas si teď vyžádá potvrzení (na jiné auto ve stejném čase zůstává bez ptaní).",
+      "🔒 Exporty (CSV, startovní listina, rozpočet) ošetřeny proti zneužití — jméno jako „=něco“ se v Excelu nespustí jako vzorec.",
+      "💰 Opraven i export rozpočtu do Excelu — počítal ze špatných políček, teď sedí s tabulkou rozpočtu.",
+      "🧹 Interní vylepšení: bezpečnější generování ID (nižší riziko kolizí) a drobné úklidy.",
+    ],
+  },
   {
     version: "0.15",
     date: "7. 7. 2026",
@@ -161,12 +174,20 @@ const T = {
   brass: "#c9a24b", text: "#e8ece4", textDim: "#9aa896", danger: "#c46a5a",
   warn: "#d9a441", info: "#5a93c4", purple: "#9b72cf",
 };
-const uid  = () => Math.random().toString(36).slice(2, 9);
+const uid  = () => (typeof crypto !== "undefined" && crypto.randomUUID)
+  ? crypto.randomUUID()
+  : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 const czk  = (n) => n == null ? "—" : Number(n).toLocaleString("cs-CZ", { style: "currency", currency: "CZK", maximumFractionDigits: 0 });
 const num  = (v) => parseFloat(String(v).replace(",", ".")) || 0;
 const VAT  = [0, 10, 15, 21];
 const vatKc   = (net, r) => Math.round(num(net) * r / 100);
 const withVat = (net, r) => Math.round(num(net) * (1 + r / 100));
+// ochrana exportů proti CSV/formula injection: buňka začínající =,+,-,@ (nebo tab/CR)
+// by se v Excelu vyhodnotila jako vzorec. Prefixneme apostrofem.
+const csvSafe = (s) => {
+  const str = String(s ?? "");
+  return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+};
 
 /* ── konstanty ── */
 const FIELD_TYPES = [
@@ -1857,19 +1878,27 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
     const p = c.parts.find((x) => x.id === pid);
     if (p) alert(`[Mock EmailJS]\nKomu: ${p.data[c.fieldMeta?.emailId]}\nPředmět: Pozvánka na ${c.name} (opakované zaslání)`);
   };
-  const reject   = (pid) => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, state: "zrusil", note: (p.note ? p.note + " · " : "") + "Zamítnuto schvalovatelem" } : p) }));
+  // stavy, kdy zákazník na akci fakticky není → uklidit jeho rezervace testovacích jízd,
+  // ať v mřížce nezůstane "duch" jízdy zrušeného zákazníka (TD-6)
+  const NON_ATTENDING = ["zrusil", "nedostavil", "nemoc", "dovolena"];
+  const cleanDriveRes = (camp, pid, newState) =>
+    NON_ATTENDING.includes(newState)
+      ? { ...camp, reservations: (camp.reservations || []).filter((r) => r.partId !== pid) }
+      : camp;
+
+  const reject   = (pid) => onUpdate((camp) => cleanDriveRes({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, state: "zrusil", note: (p.note ? p.note + " · " : "") + "Zamítnuto schvalovatelem" } : p) }, pid, "zrusil"));
   const setState = (pid, s) => {
     if (s === "potvrzen" && isGolf) {
       const p = c.parts.find((x) => x.id === pid);
       if (!p?.hcp) { setHcpModal(pid); return; }
     }
-    onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, state: s } : p) }));
+    onUpdate((camp) => cleanDriveRes({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, state: s } : p) }, pid, s));
   };
   const setHcp   = (pid, hcp) => { onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, hcp, state: "potvrzen" } : p) })); setHcpModal(null); };
   const setNote  = (pid, note) => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, note } : p) }));
   const setCrm   = (pid, crm)  => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, crm } : p) }));
   const setGroup = (pid, gid)  => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, group: gid } : p) }));
-  const remove   = (pid) => onUpdate((camp) => ({ ...camp, parts: camp.parts.filter((p) => p.id !== pid) }));
+  const remove   = (pid) => onUpdate((camp) => ({ ...camp, parts: camp.parts.filter((p) => p.id !== pid), reservations: (camp.reservations || []).filter((r) => r.partId !== pid) }));
   const assign   = (pid, uid2) => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, assignedTo: uid2 || null } : p) }));
   const currentUser = USERS_SEED.find(u => u.role === role) || null;
   const currentUserId = currentUser?.id || null;
@@ -4324,7 +4353,6 @@ function TestDriveGrid({ c, role, onUpdate }) {
     }
 
     if (usable === 0) {
-      const btLabel = blockLabel(type);
       alert(`Nelze blokovat: v tomto slotu jede potvrzený zákazník${hitConfirmed ? ` (${hitConfirmed})` : ""}. Nejdřív ho přesuň, nebo vyber jiný čas.`);
       return;
     }
@@ -4361,6 +4389,10 @@ function TestDriveGrid({ c, role, onUpdate }) {
     const slot = slots.find((s) => s.idx === slotIndex);
     if (car && slot && !carAvailable(car, slot)) { alert("Vůz v tomto čase ještě není k dispozici."); return; }
     if (!r.blocked && r.partId && custBusyAt(r.partId, slotIndex, r.id)) { alert("Zákazník už v tomto čase jede jiný vůz."); return; }
+    // ochrana: přesun potvrzené jízdy na JINÝ čas mění zákazníkovi slot z pozvánky → potvrdit.
+    // (přesun na jiné auto ve stejném čase je OK, čas se nemění)
+    if (isProtectedRes(r) && slotIndex !== r.slotIndex &&
+        !window.confirm(`${custName(r.partId)} má potvrzený čas z pozvánky. Opravdu přesunout na jiný čas?`)) return;
     patchRes((rs) => rs.map((x) => x.id === resId ? { ...x, carId, slotIndex } : x));
   };
 
@@ -4405,9 +4437,15 @@ function TestDriveGrid({ c, role, onUpdate }) {
   const totalBlocked = reservations.filter((r) => r.blocked).length;
   // kolik slotů sežralo zpoždění ("jezdí od") napříč všemi vozy
   const unavailCells = cars.reduce((acc, car) => acc + slots.filter((s) => !carAvailable(car, s)).length, 0);
-  // volné = celkem − obsazené jízdou − blok − nedostupné (bez dvojího počítání: blok/rezervace v nedostupném slotu je vzácný, ale odečteme reálně obsazené)
-  const usedCells = reservations.length; // rezervace i bloky zabírají buňku
-  const freeCells = Math.max(0, totalCells - usedCells - unavailCells + reservations.filter((r) => { const car = cars.find((x) => x.id === r.carId); const slot = slots.find((s) => s.idx === r.slotIndex); return car && slot && !carAvailable(car, slot); }).length);
+  // volné sloty — přímý průchod, ať to sedí i při kombinaci bloků a zpoždění (žádná inkluze-exkluze)
+  let freeCells = 0;
+  for (const car of cars) {
+    for (const s of slots) {
+      if (!carAvailable(car, s)) continue;      // nedostupné (pozdní příjezd) se nepočítá jako volné
+      if (resAt(car.id, s.idx)) continue;       // obsazené jízdou nebo blokem
+      freeCells++;
+    }
+  }
 
   return (
     <div>
@@ -4767,7 +4805,7 @@ function exportTestDrive(c, cars, slots, resAt, custName) {
     });
     rows.push(row);
   });
-  const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";")).join("\n");
+  const csv = rows.map((r) => r.map((cell) => `"${csvSafe(cell).replace(/"/g, '""')}"`).join(";")).join("\n");
   const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -4995,10 +5033,11 @@ function exportBudgetExcel(c) {
   const items = c.budget?.items || [];
   const header = ["Název", "Dodavatel", "Poznámka", "DPH %", "Plán bez DPH", "Plán s DPH", "Reál bez DPH", "Reál s DPH"].join("	");
   const rows = items.map(i => {
-    const vatM = 1 + (i.vat || 0) / 100;
-    const expG = Math.round((i.expNet || 0) * vatM);
-    const realG = Math.round((i.realNet || 0) * vatM);
-    return [i.label, i.supplier || "", i.note || "", `${i.vat || 0}%`, i.expNet || 0, expG, i.realNet || 0, realG].join("	");
+    const planNet = num(i.planNet ?? i.amountNet ?? 0);
+    const realNet = num(i.realNet ?? 0);
+    const planG = withVat(planNet, i.vatRate);
+    const realG = withVat(realNet, i.vatRate);
+    return [csvSafe(i.name), csvSafe(i.supplier || ""), csvSafe(i.note || ""), `${i.vatRate || 0}%`, planNet, planG, realNet, realG].join("	");
   });
   const tsv = [header, ...rows].join("\n");
   const blob = new Blob(["﻿" + tsv], { type: "application/vnd.ms-excel;charset=utf-8" });
@@ -5008,7 +5047,7 @@ function exportBudgetExcel(c) {
 }
 
 function exportCsv(c) {
-  const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+  const esc = (s) => `"${csvSafe(s).replace(/"/g, '""')}"`;
   const header = [...c.fields.map((f) => f.label), "HCP", "Skupina", "Stav", "Poznámka"].map(esc).join(";");
   const rows   = c.parts.map((p) => [
     ...c.fields.map((f) => p.data[f.id]),
@@ -5021,14 +5060,16 @@ function exportCsv(c) {
 }
 function exportStartList(c, buckets, ft) {
   const { nameId } = c.fieldMeta;
-  const esc = (s) => `"${String(s ?? "").replace(/"/g, '""')}"`;
+  const esc = (s) => `"${csvSafe(s).replace(/"/g, '""')}"`;
   const rows = [["Flight", "Čas", "Hráč", "HCP", "Stav"].map(esc).join(";")];
   buckets.forEach((b, i) => b.forEach((p) => rows.push([`Flight ${i + 1}`, ft(i), p.data[nameId], p.hcp || "—", STATES[p.state].label].map(esc).join(";"))));
   dl(`listina-${c.name}.csv`, "\uFEFF" + rows.join("\n"));
 }
 function dl(name, content) {
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8;" })), download: name });
+  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8;" }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
   a.click();
+  URL.revokeObjectURL(url);
 }
 function fmt(d) {
   try { return new Date(d).toLocaleDateString("cs-CZ", { day: "numeric", month: "long", year: "numeric" }); } catch { return d; }
