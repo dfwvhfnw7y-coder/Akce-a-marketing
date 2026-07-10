@@ -13,12 +13,24 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.22";
-const APP_BUILD = "2026-07-10 21:38";
+const APP_VERSION = "0.23";
+const APP_BUILD = "2026-07-10 22:05";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.23",
+    date: "10. 7. 2026",
+    title: "Uzavření akce, finální report a archiv — uzavřený životní cyklus",
+    items: [
+      "🔄 Každá akce má stav životního cyklu (Návrh → Připravená → Probíhá → Čeká na uzavření → Uzavřeno → Archiv). Fáze se odvozují z data a dat — nic se nepřepíná ručně, jen se ukazuje odznak.",
+      "⏳ 14 dní po akci přejde do „Čeká na uzavření\". Obchodní práce ale běží hned po akci — souhrny jsou k dispozici okamžitě, dotazník jede souběžně jako bonus.",
+      "✅ Uzavření akce (tlačítko v detailu) projde kontrolou kvality dat: leady předány obchodníkovi, ověřené telefony, zkontrolované souhrny, ukončené dotazníky. Nedodělky varují, ale nezablokují.",
+      "📊 Při uzavření vznikne zmrazený finální report: pozvaní/potvrzení/účastníci, jízdy, leady, nabídky, financování, kontakty, hosté z ulice, nejčastější zájmy + automatické „Poznatky\" a „Doporučení pro příští akci\".",
+      "🔒 Uzavřená akce je jen ke čtení. Archiv se schová z hlavního přehledu (přepínač „Archiv\" na dashboardu).",
+    ],
+  },
   {
     version: "0.22",
     date: "10. 7. 2026",
@@ -356,6 +368,54 @@ const STATES = {
 const STATE_ORDER  = Object.keys(STATES);
 const OCCUPIES     = ["ceka", "prihlasen", "potvrzen"];
 const STARTLIST_OK = ["potvrzen", "prihlasen"];
+
+/* ── životní cyklus akce (v0.23) — stav + odvozené fáze ── */
+const WRAPUP_DAYS = 14;
+const EVENT_STATUS = {
+  draft:    { label: "Návrh",             color: T.textDim },
+  approved: { label: "Připravená",        color: T.info },
+  live:     { label: "Probíhá / doznívá", color: T.greenLite },
+  wrapup:   { label: "Čeká na uzavření",  color: T.warn },
+  closed:   { label: "Uzavřeno",          color: T.brass },
+  archived: { label: "Archiv",            color: T.textDim },
+};
+const daysSince = (dateISO) => {
+  if (!dateISO) return null;
+  const d = new Date(String(dateISO).slice(0, 10) + "T00:00:00");
+  if (isNaN(d.getTime())) return null;
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  return Math.floor((now - d) / 86400000);
+};
+// efektivní stav akce. closed/archived jsou "sticky" (uložené ručně), zbytek se odvodí z data + dat.
+const eventStatus = (c) => {
+  if (c.status === "archived") return "archived";
+  if (c.status === "closed")   return "closed";
+  const ds = daysSince(c.date);
+  if (ds == null) return "draft";
+  if (ds >= WRAPUP_DAYS) return "wrapup";
+  if (ds >= 0) return "live";
+  const hasApproved = (c.parts || []).some((p) => ["schvaleno", "prihlasen", "potvrzen"].includes(p.state));
+  return hasApproved ? "approved" : "draft";
+};
+const isReadOnly = (c) => ["closed", "archived"].includes(eventStatus(c));
+// informativní fáze (jen odznak, nic se nepřepíná ručně)
+const eventPhase = (c) => {
+  const st = eventStatus(c);
+  if (st === "live") {
+    const ds = daysSince(c.date);
+    if (ds === 0) return "probíhá dnes";
+    const left = WRAPUP_DAYS - ds;
+    return (c.survey?.sent ? "dotazníky aktivní · " : "") + `do uzavření ${left} ${left === 1 ? "den" : left < 5 ? "dny" : "dní"}`;
+  }
+  if (st === "approved") {
+    const hasConfirmed = (c.parts || []).some((p) => p.state === "potvrzen");
+    const hasInvited   = (c.parts || []).some((p) => ["prihlasen", "potvrzen"].includes(p.state));
+    if (hasConfirmed) return "RSVP";
+    if (hasInvited)   return "pozvánky odeslány";
+    return "registrace";
+  }
+  return null;
+};
 
 const APPROVERS = [
   { id: "mira",   name: "Miroslav Šperl",  role: "Vedoucí prodeje" },
@@ -929,6 +989,7 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
   const [creating,   setCreating]   = useState(false);
   const [showAnnual, setShowAnnual] = useState(false);
   const [statsScope, setStatsScope] = useState("all");
+  const [showArchive, setShowArchive] = useState(false);
 
   const scopedCamps   = statsScope === "all" ? campaigns : campaigns.filter((cp) => cp.id === statsScope);
   const stateChartData = STATE_ORDER.map((s) => ({
@@ -1000,6 +1061,7 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}><Flag size={17} color={T.brass} /><h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Přehled akcí</h2></div>
         <div style={{ display: "flex", gap: 8 }}>
+          <Btn kind="ghost" icon={FolderOpen} onClick={() => setShowArchive((v) => !v)}>{showArchive ? "Skrýt archiv" : "Archiv"}</Btn>
           <Btn kind="ghost" icon={Wallet} onClick={() => setShowAnnual(true)}>Roční rozpočet</Btn>
           {role === "admin" && <Btn kind="primary" icon={Plus} onClick={() => setCreating(true)}>Nová akce</Btn>}
         </div>
@@ -1069,13 +1131,14 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
 
       {/* dlaždice */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(290px,1fr))", gap: 12 }}>
-        {campaigns.map((c) => {
+        {campaigns.filter((c) => showArchive ? eventStatus(c) === "archived" : eventStatus(c) !== "archived").map((c) => {
           const t = budgetTotals(c.budget?.items);
           const wc = c.parts.filter((p) => p.state === "ceka").length;
           return (
             <div key={c.id} onClick={() => onOpen(c.id)} style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 12, padding: 15, cursor: "pointer" }}>
               <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>{c.name}</div>
               <div style={{ fontSize: 12, color: T.textDim, marginBottom: 6 }}>{fmt(c.date)} · {c.place}</div>
+              <div style={{ marginBottom: 8 }}><EventStatusBadge c={c} /></div>
               <div style={{ fontSize: 11, color: T.brass, marginBottom: 10 }}>
                 {ACTIVITY_TYPES.find((x) => x.id === c.activityType)?.label} · {((c.approvers && c.approvers.length) ? c.approvers : [c.approver].filter(Boolean)).map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ")}
               </div>
@@ -1898,13 +1961,16 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
   const [approvalFilter, setApprovalFilter] = useState("vse"); // "vse" | dept name
   const [hcpModal, setHcpModal] = useState(null);
   const [dupErr,   setDupErr]   = useState("");
+  const [closeModal, setCloseModal] = useState(false);
 
   const full       = used >= c.capacity;
   const isGolf     = c.activityType === "golf";
   const { nameId, emailId, phoneId, hcpId } = c.fieldMeta;
   const waitCount  = c.parts.filter((p) => p.state === "ceka").length;
   const canApprove = role === "admin" || role === "approver";
-  const canEdit    = role === "admin" || role === "approver";
+  const estatus    = eventStatus(c);
+  const ro         = isReadOnly(c);                                  // v0.23: po uzavření jen ke čtení
+  const canEdit    = (role === "admin" || role === "approver") && !ro;
   const isMgmt     = role === "admin" || role === "approver";
   const apIds      = (c.approvers && c.approvers.length) ? c.approvers : [c.approver].filter(Boolean);
   const apNames    = apIds.map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ");
@@ -1992,7 +2058,10 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <Btn kind="ghost" icon={ArrowLeft} onClick={onBack} small>Zpět</Btn>
-            {(role === "admin") && <Btn kind="ghost" icon={Edit2} small onClick={() => setEditingCampaign(true)}>Upravit akci</Btn>}
+            {(role === "admin" && !ro) && <Btn kind="ghost" icon={Edit2} small onClick={() => setEditingCampaign(true)}>Upravit akci</Btn>}
+            {(role === "admin" && estatus === "wrapup") && <Btn kind="green" icon={Check} small onClick={() => setCloseModal(true)}>Uzavřít akci</Btn>}
+            {(role === "admin" && estatus === "closed") && <Btn kind="ghost" icon={FolderOpen} small onClick={() => onUpdate((camp) => ({ ...camp, status: "archived" }))}>Do archivu</Btn>}
+            <EventStatusBadge c={c} showPhase />
             <a href={"https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + encodeURIComponent(c.name) + "&dates=" + (c.date||"").replace(/-/g,"") + "T080000Z/" + (c.date||"").replace(/-/g,"") + "T180000Z&location=" + encodeURIComponent(c.place||"")} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: `${T.brass}15`, border: `1px solid ${T.brass}55`, borderRadius: 8, color: T.brass, fontSize: 12, textDecoration: "none", fontWeight: 500 }}>📅 Přidat do kalendáře</a>
           </div>
           <h2 style={{ margin: "0 0 2px", fontSize: 19, fontWeight: 600 }}>{c.name}</h2>
@@ -2004,6 +2073,11 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
         <div style={{ width: 200 }}><CapBar used={used} cap={c.capacity} /></div>
       </div>
 
+      {ro && (
+        <div style={{ background: `${T.brass}14`, border: `1px solid ${T.brass}55`, borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 12.5, color: T.brass, display: "flex", alignItems: "center", gap: 8 }}>
+          <Lock size={14} /> Akce je {estatus === "archived" ? "archivovaná" : "uzavřená"} — jen ke čtení{c.closedAt ? `. Uzavřeno ${fmt(String(c.closedAt).slice(0, 10))}` : ""}.
+        </div>
+      )}
       {/* panel schválení */}
       {canApprove && waitCount > 0 && (() => {
         const waitParts = c.parts.filter((p) => p.state === "ceka");
@@ -2101,6 +2175,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       {editingCampaign && <CreateWizard editCampaign={c} onClose={() => setEditingCampaign(false)} onCreate={(updated) => { onUpdate(() => updated); setEditingCampaign(false); }} />}
       {adding   && <AddModal fields={c.fields} fieldMeta={c.fieldMeta} full={full} crossMap={crossMap} campEquipment={c.equipment || []} onClose={() => setAdding(false)} onAdd={(data, eq, info) => { if (addPart(data, eq, info)) setAdding(false); }} />}
       {hcpModal && <HcpModal onClose={() => setHcpModal(null)} onSave={(hcp) => setHcp(hcpModal, hcp)} />}
+      {closeModal && <CloseEventModal c={c} onClose={() => setCloseModal(false)} onConfirm={() => { onUpdate((camp) => ({ ...camp, status: "closed", closedAt: new Date().toISOString(), closedBy: role, finalReport: buildFinalReport(camp) })); setCloseModal(false); }} />}
     </div>
   );
 }
@@ -4155,6 +4230,213 @@ function TeamReportRow({ m }) {
   );
 }
 
+/* ════════════════════════════════════════
+   UZAVŘENÍ AKCE — metriky, kvalita leadů, generované sekce (v0.23)
+════════════════════════════════════════ */
+const REPORT_THRESHOLDS = { rsvpLow: 0.6, noShowHigh: 0.15, offerStrong: 0.5, noPhoneHigh: 0.2 };
+
+const leadQuality = (c) => {
+  const leads = c.leads || [];
+  const has = (v) => !!(v && String(v).trim());
+  return {
+    total: leads.length,
+    assigned: leads.filter((l) => !!l.assignedTo),
+    noSeller: leads.filter((l) => !l.assignedTo),
+    noPhone:  leads.filter((l) => !has(l.phone)),
+    noNote:   leads.filter((l) => !has(l.note)),
+  };
+};
+
+const eventMetrics = (c) => {
+  const parts = c.parts || [];
+  const inState = (arr) => parts.filter((p) => arr.includes(p.state)).length;
+  const invited   = parts.filter((p) => !["ceka", "schvaleno"].includes(p.state)).length; // pozvánka odeslána a dál
+  const confirmed = inState(["potvrzen"]);
+  const noShow    = inState(["nedostavil"]);
+  const attended  = confirmed; // "nedostavil se" má vlastní stav → potvrzeno už je čistý počet přítomných
+  const drives    = (c.reservations || []).filter((r) => !r.blocked && r.partId).length;
+  const leads     = c.leads || [];
+  const offers    = leads.filter((l) => l.wantsOffer === true).length;
+  const financing = leads.filter((l) => !!l.financing).length;
+  const contacts  = leads.filter((l) => l.wantsContact === true).length;
+  const street    = parts.filter((p) => p.fromStreet).length;
+  const emId = c.fieldMeta?.emailId;
+  const attendeesNoEmail = parts.filter((p) => ["potvrzen", "prihlasen"].includes(p.state) && !((p.data?.[emId] || "").trim())).length;
+  const ic = {};
+  leads.forEach((l) => { const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest); const k = lvl ? lvl.label : (l.interest || l.model || "—"); ic[k] = (ic[k] || 0) + 1; });
+  const topInterests = Object.entries(ic).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  return { invited, confirmed, noShow, attended, drives, leadCount: leads.length, offers, financing, contacts, street, attendeesNoEmail, topInterests };
+};
+
+// generované sekce reportu — pravidla z prahů (offline). Vrací pole vět.
+const reportInsights = (c) => {
+  const m = eventMetrics(c);
+  const b = budgetTotals(c.budget?.items);
+  const out = [];
+  if (m.invited > 0) {
+    const rsvp = m.confirmed / m.invited;
+    if (rsvp < REPORT_THRESHOLDS.rsvpLow) out.push(`Potvrdilo jen ${Math.round(rsvp * 100)} % pozvaných (${m.confirmed} z ${m.invited}).`);
+    else out.push(`Dobrá účast — potvrdilo ${Math.round(rsvp * 100)} % pozvaných.`);
+  }
+  if (m.confirmed + m.noShow > 0) {
+    const ns = m.noShow / (m.confirmed + m.noShow);
+    if (ns > REPORT_THRESHOLDS.noShowHigh) out.push(`Vysoká absence — nedostavilo se ${Math.round(ns * 100)} % potvrzených.`);
+  }
+  if (b.realGross > b.expGross && b.expGross > 0) out.push(`Rozpočet překročen o ${czk(b.realGross - b.expGross)}.`);
+  if (m.leadCount > 0 && m.offers / m.leadCount > REPORT_THRESHOLDS.offerStrong) out.push(`Silný obchodní zájem — ${Math.round((m.offers / m.leadCount) * 100)} % leadů chce nabídku.`);
+  if (m.street > 0) out.push(`${m.street} ${m.street === 1 ? "host přišel" : "hostů přišlo"} „z ulice" — akce zaujala i nepozvané.`);
+  if (m.drives > 0) out.push(`Odjeto ${m.drives} testovacích jízd.`);
+  return out;
+};
+
+const reportRecommendations = (c) => {
+  const m = eventMetrics(c);
+  const q = leadQuality(c);
+  const b = budgetTotals(c.budget?.items);
+  const out = [];
+  if (m.invited > 0 && m.confirmed / m.invited < REPORT_THRESHOLDS.rsvpLow) out.push("Nízké RSVP — posílat pozvánky a připomínky dřív a s jasnějším CTA.");
+  if (q.total > 0 && q.noPhone.length / q.total > REPORT_THRESHOLDS.noPhoneHigh) out.push("Chybí telefon u části leadů — vyžadovat telefonní číslo už při zápisu na akci.");
+  if (m.confirmed + m.noShow > 0 && m.noShow / (m.confirmed + m.noShow) > REPORT_THRESHOLDS.noShowHigh) out.push("Vysoká absence — zavolat potvrzeným den předem a připomenout účast.");
+  if (m.attendeesNoEmail > 0) out.push(`${m.attendeesNoEmail} účastníků bez e-mailu — dotazník jim nešel poslat. Sbírat e-mail už při registraci.`);
+  if (q.noSeller.length > 0) out.push(`${q.noSeller.length} leadů bez obchodníka — přiřadit před uzavřením, ať nezapadnou.`);
+  if (out.length === 0) out.push("Bez zásadních doporučení — akce proběhla v pořádku.");
+  return out;
+};
+
+const buildFinalReport = (c) => ({
+  at: new Date().toISOString(),
+  metrics: eventMetrics(c),
+  insights: reportInsights(c),
+  recommendations: reportRecommendations(c),
+});
+
+function EventStatusBadge({ c, showPhase }) {
+  const st = eventStatus(c);
+  const meta = EVENT_STATUS[st] || EVENT_STATUS.draft;
+  const phase = showPhase ? eventPhase(c) : null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, fontWeight: 600, color: meta.color, background: `${meta.color}1e`, border: `1px solid ${meta.color}55`, borderRadius: 6, padding: "2px 8px", whiteSpace: "nowrap" }}>
+      {meta.label}{phase ? <span style={{ color: T.textDim, fontWeight: 400 }}> · {phase}</span> : null}
+    </span>
+  );
+}
+
+function ReportInsights({ c }) {
+  const m = eventMetrics(c);
+  const insights = c.finalReport?.insights || reportInsights(c);
+  const recs = c.finalReport?.recommendations || reportRecommendations(c);
+  const cell = (n, l, col) => (
+    <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 9, padding: "10px 12px" }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: col || T.cream }}>{n}</div>
+      <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{l}</div>
+    </div>
+  );
+  return (
+    <div style={{ marginBottom: 24 }}>
+      {c.finalReport && (
+        <div style={{ fontSize: 11.5, color: T.brass, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+          🔒 Finální report zmrazen {fmt(String(c.closedAt || c.finalReport.at || "").slice(0, 10))}.
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 10, marginBottom: 18 }}>
+        {cell(m.invited, "pozvaných")}
+        {cell(m.confirmed, "potvrzených", T.greenLite)}
+        {cell(m.attended, "účastníků", T.greenLite)}
+        {cell(m.noShow, "nedostavili se", m.noShow ? T.warn : T.textDim)}
+        {cell(m.drives, "testovacích jízd", T.info)}
+        {cell(m.leadCount, "leadů", T.brass)}
+        {cell(m.offers, "chce nabídku", T.brass)}
+        {cell(m.financing, "financování")}
+        {cell(m.contacts, "chce kontakt")}
+        {cell(m.street, "hostů z ulice", T.info)}
+      </div>
+      {m.topInterests.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 7 }}>Nejčastější zájmy</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            {m.topInterests.map(([k, n]) => (
+              <span key={k} style={{ fontSize: 12, padding: "4px 10px", borderRadius: 7, background: `${T.brass}14`, border: `1px solid ${T.brass}44`, color: T.cream }}>{k} <b style={{ color: T.brass }}>{n}×</b></span>
+            ))}
+          </div>
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 8 }}>📌 Poznatky z akce</div>
+          {insights.length ? insights.map((str, i) => <div key={i} style={{ fontSize: 12.5, color: T.creamDim, marginBottom: 5, lineHeight: 1.4 }}>• {str}</div>) : <div style={{ fontSize: 12, color: T.textDim }}>—</div>}
+        </div>
+        <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 8 }}>💡 Doporučení pro příští akci</div>
+          {recs.map((str, i) => <div key={i} style={{ fontSize: 12.5, color: T.creamDim, marginBottom: 5, lineHeight: 1.4 }}>• {str}</div>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CloseEventModal({ c, onClose, onConfirm }) {
+  const q = leadQuality(c);
+  const m = eventMetrics(c);
+  const surveyDone = !!(c.survey?.responses?.length) || !!c.surveyNA;
+  const summariesDone = (c.leads || []).length === 0 || (c.leads || []).every((l) => l.wantsOffer != null || l.wantsContact != null || (l.note && l.note.trim()));
+  const checks = [
+    { ok: q.noSeller.length === 0, label: "Všechny leady předány obchodníkovi", detail: q.noSeller.length ? `${q.noSeller.length} bez obchodníka` : "hotovo" },
+    { ok: q.noPhone.length === 0,  label: "Kontaktní údaje ověřeny (telefon)",  detail: q.noPhone.length ? `${q.noPhone.length} bez telefonu` : "hotovo" },
+    { ok: summariesDone,           label: "Obchodní souhrny zkontrolovány",     detail: summariesDone ? "hotovo" : "část leadů bez souhrnu" },
+    { ok: surveyDone,              label: "Dotazníky ukončeny",                 detail: surveyDone ? "hotovo" : "bez odpovědí" },
+  ];
+  const allOk = checks.every((x) => x.ok);
+  const [confirmAnyway, setConfirmAnyway] = useState(false);
+  const [openList, setOpenList] = useState(null);
+  const row = (label, list, color) => (
+    <div>
+      <div onClick={() => list.length && setOpenList(openList === label ? null : label)} style={{ display: "flex", justifyContent: "space-between", cursor: list.length ? "pointer" : "default", padding: "5px 0", fontSize: 12.5, color: list.length ? color : T.textDim }}>
+        <span>{label}</span><span style={{ fontWeight: 600 }}>{list.length}{list.length ? " ›" : ""}</span>
+      </div>
+      {openList === label && list.length > 0 && (
+        <div style={{ paddingLeft: 10, marginBottom: 6 }}>
+          {list.map((l) => <div key={l.id} style={{ fontSize: 11.5, color: T.textDim }}>· {l.name || "—"}{l.phone ? " · " + l.phone : ""}</div>)}
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <Modal title="Uzavřít akci" onClose={onClose} wide>
+      <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 14, lineHeight: 1.5 }}>
+        Uzavření akci zamkne pro čtení a vytvoří finální report. Obchodní práce tím nekončí — leady už měly být předány. Uzavření jen potvrzuje, že data jsou kompletní a připravená k archivaci.
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 8 }}>Kontrola před uzavřením</div>
+      <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+        {checks.map((x, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 0", borderBottom: i < checks.length - 1 ? `1px solid ${T.line}` : "none" }}>
+            <span style={{ fontSize: 15 }}>{x.ok ? "✅" : "⚠️"}</span>
+            <span style={{ flex: 1, fontSize: 12.5, color: x.ok ? T.cream : T.warn }}>{x.label}</span>
+            <span style={{ fontSize: 11.5, color: T.textDim }}>{x.detail}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 6 }}>Kvalita leadů ({q.total})</div>
+      <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 14px", marginBottom: 16 }}>
+        {row("Přiřazeno obchodníkovi", q.assigned, T.greenLite)}
+        {row("Bez obchodníka", q.noSeller, T.warn)}
+        {row("Bez telefonu", q.noPhone, T.warn)}
+        {row("Bez poznámky", q.noNote, T.textDim)}
+        {m.attendeesNoEmail > 0 && <div style={{ fontSize: 11.5, color: T.textDim, paddingTop: 6 }}>Účastníků bez e-mailu: {m.attendeesNoEmail} (dotazník jim nešel poslat)</div>}
+      </div>
+      {!allOk && (
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: T.warn, marginBottom: 14, cursor: "pointer" }}>
+          <input type="checkbox" checked={confirmAnyway} onChange={(e) => setConfirmAnyway(e.target.checked)} style={{ accentColor: T.warn }} />
+          Vím o nedodělcích výše a přesto chci akci uzavřít.
+        </label>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <Btn kind="ghost" onClick={onClose}>Zrušit</Btn>
+        <Btn kind="primary" icon={Check} disabled={!allOk && !confirmAnyway} onClick={onConfirm}>Uzavřít akci</Btn>
+      </div>
+    </Modal>
+  );
+}
+
 function ReportTab({ c }) {
   const t          = budgetTotals(c.budget?.items);
   const confirmed  = c.parts.filter((p) => p.state === "potvrzen").length;
@@ -4224,6 +4506,8 @@ function ReportTab({ c }) {
 
       <div style={{ fontSize: 18, fontWeight: 700, color: T.cream, marginBottom: 2 }}>Report — {c.name}</div>
       <div style={{ fontSize: 13, color: T.textDim, marginBottom: 20 }}>{fmt(c.date)} · {c.place} · {ACTIVITY_TYPES.find((x) => x.id === c.activityType)?.label}</div>
+
+      <ReportInsights c={c} />
 
       {/* souhrn */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 12 }}>
