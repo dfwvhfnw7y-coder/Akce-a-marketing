@@ -13,12 +13,25 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.18";
-const APP_BUILD = "__BUILD__";
+const APP_VERSION = "0.19";
+const APP_BUILD = "2026-07-10 19:06";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.19",
+    date: "10. 7. 2026",
+    title: "Signál z jízdy — hodnocení, zájem o nabídku, kapacitní přehled a predikce účasti",
+    items: [
+      "🏁 U každého leadu jde zadat signál z jízdy: líbil se vůz (1–5 ⭐), zájem o nabídku (ano/ne) a plán nákupu (0–3 / 3–6 / 6–12 měs.). Tyto signály zvyšují tier skóre — horký zákazník po jízdě vyskočí na Tier 1.",
+      "📊 Tier skóre je nově 0–12 (základ 0–9 + signál z jízdy 0–3). Hranice tierů přeškálovány (Tier 1 ≥ 9, Tier 2 ≥ 6).",
+      "🎯 U leadu jde označit výsledek: otevřeno / prodáno / ztraceno (základ pro budoucí reporting ROI).",
+      "👥 V reportu přibyl Kapacitní přehled: pozváni / potvrzeni / bez odpovědi / odmítli.",
+      "🔮 Predikce reálné účasti z historické no-show míry napříč akcemi (kolik potvrzených reálně dorazí).",
+      "📋 Kopírování shrnutí do CRM teď zahrnuje i signál z jízdy a spárovanou odpověď z dotazníku.",
+    ],
+  },
   {
     version: "0.18",
     date: "8. 7. 2026",
@@ -453,7 +466,7 @@ const seed = () => {
       mk("Martin Beneš",  "m.benes@firma.cz",    "+420 603 222 444", "zrusil",   "Nemoc"),
     ],
     leads: [
-      { id: "l1", name: "Jan Novák",     phone: "+420 601 234 567", model: "GLE 450 4MATIC",  interest: "velky",      note: "Chce test drive, volat do týdne.", addedBy: "hosteska", assignedTo: "u5", at: "2026-06-20", isGuest: false },
+      { id: "l1", name: "Jan Novák",     phone: "+420 601 234 567", model: "GLE 450 4MATIC",  interest: "velky",      note: "Chce test drive, volat do týdne.", addedBy: "hosteska", assignedTo: "u5", at: "2026-06-20", isGuest: false, driveRating: 5, wantsOffer: true, buyHorizon: "0-3", outcome: "otevreno" },
       { id: "l2", name: "Eva Dvořáková", phone: "+420 777 888 999", model: "EQS 580 4MATIC",  interest: "zjistit",    note: "Zájem o elektrifikaci celého fletu.", addedBy: "hosteska", at: "2026-06-20", isGuest: false },
       { id: "l3", name: "Tomáš Horák",   phone: "+420 608 555 333", model: "Sprinter 319 CDI", interest: "informace",  note: "Potřebuje 2 dodávky Q1 2027.", addedBy: "prodejce", at: "2026-06-20", isGuest: false },
       { id: "l4", name: "Roman Blaha",   phone: "+420 777 111 222", model: "G 500",            interest: "velky",      note: "Kamarád Jana Nováka, přišel s ním. Vlastní BMW X7.", addedBy: "hosteska", assignedTo: null, at: "2026-06-20", isGuest: true },
@@ -856,7 +869,7 @@ export default function App() {
         ) : (
           <Detail
             c={current} role={role} used={used(current)} crossMap={crossMap}
-            blocked={liteBlocked} onBack={() => setOpen(null)}
+            blocked={liteBlocked} onBack={() => setOpen(null)} allCamps={campaigns}
             onUpdate={(fn) => update(current.id, fn)} onRemind={() => remind(current.id)}
           />
         )}
@@ -1842,7 +1855,7 @@ function CreateWizard({ onClose, onCreate, editCampaign }) {
 }
 
 
-function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }) {
+function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind, allCamps }) {
   const [tab,      setTab]      = useState("list");
   const [adding,   setAdding]   = useState(false);
   const [editingCampaign, setEditingCampaign] = useState(false);
@@ -2045,7 +2058,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       {isMgmt && tab === "invite" && <InviteTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
       {isMgmt && tab === "survey" && <SurveyTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
       {tab === "leads"  && <LeadsTab c={c} role={role} onUpdate={onUpdate} />}
-      {isMgmt && tab === "report" && <ReportTab c={c} />}
+      {isMgmt && tab === "report" && <ReportTab c={c} allCamps={allCamps} />}
       {isMgmt && tab === "start"  && <StartList c={c} role={role} onUpdate={onUpdate} />}
       {tab === "drive" && ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasReservation && <TestDriveGrid c={c} role={role} onUpdate={onUpdate} />}
 
@@ -3496,9 +3509,30 @@ const daysSince = (dateStr) => {
   return Math.max(0, Math.floor(ms / 86400000));
 };
 
+/* -- signal z jizdy (Etapa 2) -- */
+const BUY_HORIZONS = [
+  { id: "0-3",  label: "0–3 měs.",  short: "0–3 m" },
+  { id: "3-6",  label: "3–6 měs.",  short: "3–6 m" },
+  { id: "6-12", label: "6–12 měs.", short: "6–12 m" },
+];
+const LEAD_OUTCOMES = [
+  { id: "otevreno", label: "Otevřeno", icon: "◻️", color: T.textDim },
+  { id: "prodano",  label: "Prodáno",  icon: "✅", color: T.greenLite },
+  { id: "ztraceno", label: "Ztraceno", icon: "❌", color: T.danger },
+];
+
+/* bonus ze signalu z jizdy: zajem o nabidku + horizont + hodnoceni, cap +3 */
+const driveSignalScore = (lead) =>
+  Math.min(3,
+    (lead.wantsOffer === true ? 2 : 0) +
+    (lead.buyHorizon === "0-3" ? 1 : 0) +
+    (Number(lead.driveRating) >= 4 ? 1 : 0)
+  );
+
+/* skore 0–12: zajem + hodnota modelu + stari (base 0–9) + signal z jizdy (0–3) */
 const LEAD_TIERS = [
-  { id: "t1", min: 7, label: "Tier 1", icon: "🥇", color: T.brass },
-  { id: "t2", min: 5, label: "Tier 2", icon: "🥈", color: T.info },
+  { id: "t1", min: 9, label: "Tier 1", icon: "🥇", color: T.brass },
+  { id: "t2", min: 6, label: "Tier 2", icon: "🥈", color: T.info },
   { id: "t3", min: 0, label: "Tier 3", icon: "🥉", color: T.textDim },
 ];
 
@@ -3507,7 +3541,7 @@ const leadTierScore = (lead) => {
   const modelScore = modelValueScore(lead.model);
   const age = daysSince(lead.at);
   const recencyScore = age <= 3 ? 3 : age <= 7 ? 2 : 1;
-  return interestScore + modelScore + recencyScore;
+  return interestScore + modelScore + recencyScore + driveSignalScore(lead);
 };
 
 const leadTier = (lead) => {
@@ -3526,17 +3560,32 @@ const leadRiskReasons = (lead) => {
   return reasons;
 };
 
-const buildLeadSummary = (lead, assignedUser) => {
+const buildLeadSummary = (lead, assignedUser, surveyResp) => {
   const lvl = INTEREST_LEVELS.find(x => x.id === lead.interest);
   const tier = leadTier(lead);
   const fu = lead.followUp || {};
+  const horizon = BUY_HORIZONS.find(h => h.id === lead.buyHorizon);
+  const outcome = LEAD_OUTCOMES.find(o => o.id === lead.outcome);
+  const driveBits = [];
+  if (Number(lead.driveRating) > 0) driveBits.push(`hodnocení ${"★".repeat(Number(lead.driveRating))}${"☆".repeat(5 - Number(lead.driveRating))}`);
+  if (lead.wantsOffer === true)  driveBits.push("chce nabídku ✅");
+  if (lead.wantsOffer === false) driveBits.push("nabídku zatím ne");
+  if (horizon) driveBits.push(`plán nákupu ${horizon.label}`);
+  let surveyLine = null;
+  if (surveyResp && surveyResp.data) {
+    const txt = Object.values(surveyResp.data).filter(v => v && String(v).trim()).join(" · ");
+    if (txt) surveyLine = `📝 Dotazník: ${txt}`;
+  }
   const lines = [
     `👤 ${lead.name}${lead.phone ? " · " + lead.phone : ""}`,
     `🚗 ${lead.model} — ${lvl ? lvl.label : lead.interest} (${tier.icon} ${tier.label})`,
     lead.note ? `💬 ${lead.note}` : null,
+    driveBits.length ? `🏁 Jízda: ${driveBits.join(" · ")}` : null,
+    surveyLine,
     `📅 Zadáno: ${lead.at} · zadal: ${lead.addedBy}`,
     assignedUser ? `📌 Přiřazeno: ${assignedUser.name}` : null,
     fu.date ? `⏰ Follow-up: ${fu.date}${fu.done ? " (hotovo)" : ""}${fu.note ? " — " + fu.note : ""}` : null,
+    outcome && outcome.id !== "otevreno" ? `📊 Výsledek: ${outcome.label}` : null,
   ].filter(Boolean);
   return lines.join("\n");
 };
@@ -3574,6 +3623,78 @@ function FollowUpRow({ lead, onSave }) {
   );
 }
 
+/* -- Signal z jizdy: hodnoceni 1–5, zajem o nabidku, plan nakupu (Etapa 2 #4) -- */
+function DriveOutcome({ lead, onSave }) {
+  const [openBox, setOpenBox] = useState(false);
+  const rating   = Number(lead.driveRating) || 0;
+  const filled   = rating > 0 || lead.wantsOffer != null || !!lead.buyHorizon;
+  const horizon  = BUY_HORIZONS.find(h => h.id === lead.buyHorizon);
+
+  if (!openBox) {
+    return (
+      <div style={{ marginTop: 6 }}>
+        <button onClick={() => setOpenBox(true)} style={{ background: filled ? `${T.brass}14` : "none", border: `1px solid ${filled ? T.brass + "55" : T.line}`, borderRadius: 8, padding: "3px 9px", cursor: "pointer", color: filled ? T.brass : T.textDim, fontSize: 11, fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <Video size={12} />
+          {filled ? (
+            <span>
+              {rating > 0 && `${"★".repeat(rating)}${"☆".repeat(5 - rating)} `}
+              {lead.wantsOffer === true && "· chce nabídku "}
+              {lead.wantsOffer === false && "· nabídku ne "}
+              {horizon && `· ${horizon.short}`}
+            </span>
+          ) : "Hodnocení jízdy"}
+        </button>
+      </div>
+    );
+  }
+
+  const setField = (patch) => onSave(patch);
+
+  return (
+    <div style={{ marginTop: 8, background: T.bg, border: `1px solid ${T.brass}44`, borderRadius: 9, padding: "9px 11px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 600, color: T.brass, display: "flex", alignItems: "center", gap: 6 }}><Video size={13} /> Signál z jízdy</span>
+        <button onClick={() => setOpenBox(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 11 }}>zavřít ▲</button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: T.textDim, minWidth: 84 }}>Líbil se vůz</span>
+        <div style={{ display: "flex", gap: 2 }}>
+          {[1,2,3,4,5].map(n => (
+            <button key={n} onClick={() => setField({ driveRating: rating === n ? null : n })} title={`${n}/5`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 17, lineHeight: 1, color: n <= rating ? T.brass : T.line, padding: 0 }}>
+              {n <= rating ? "★" : "☆"}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: T.textDim, minWidth: 84 }}>Zájem o nabídku</span>
+        {[{ v: true, l: "Ano" }, { v: false, l: "Ne" }].map(o => (
+          <button key={o.l} onClick={() => setField({ wantsOffer: lead.wantsOffer === o.v ? null : o.v })} style={{ padding: "3px 12px", borderRadius: 7, border: `1px solid ${lead.wantsOffer === o.v ? (o.v ? T.greenLite : T.danger) : T.line}`, background: lead.wantsOffer === o.v ? (o.v ? `${T.greenLite}18` : `${T.danger}18`) : T.panel, color: lead.wantsOffer === o.v ? (o.v ? T.greenLite : T.danger) : T.textDim, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>{o.l}</button>
+        ))}
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, color: T.textDim, minWidth: 84 }}>Plán nákupu</span>
+        {BUY_HORIZONS.map(h => (
+          <button key={h.id} onClick={() => setField({ buyHorizon: lead.buyHorizon === h.id ? null : h.id })} style={{ padding: "3px 12px", borderRadius: 7, border: `1px solid ${lead.buyHorizon === h.id ? T.info : T.line}`, background: lead.buyHorizon === h.id ? `${T.info}18` : T.panel, color: lead.buyHorizon === h.id ? T.info : T.textDim, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>{h.label}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* -- Vysledek leadu: otevreno / prodano / ztraceno -- */
+function LeadOutcomeRow({ lead, onSave }) {
+  const cur = lead.outcome || "otevreno";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 11, color: T.textDim }}>Výsledek:</span>
+      {LEAD_OUTCOMES.map(o => (
+        <button key={o.id} onClick={() => onSave({ outcome: o.id })} style={{ padding: "2px 10px", borderRadius: 7, border: `1px solid ${cur === o.id ? o.color : T.line}`, background: cur === o.id ? `${o.color}18` : T.panel, color: cur === o.id ? o.color : T.textDim, fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>{o.icon} {o.label}</button>
+      ))}
+    </div>
+  );
+}
+
 function LeadsTab({ c, role, onUpdate }) {
   const [open, setOpen] = useState(false);
   const leads = c.leads || [];
@@ -3594,11 +3715,15 @@ function LeadsTab({ c, role, onUpdate }) {
   const setFollowUp = (id, patch) => onUpdate((camp) => ({
     ...camp, leads: (camp.leads || []).map(l => l.id === id ? { ...l, followUp: { ...(l.followUp || {}), ...patch } } : l),
   }));
+  const patchLead = (id, patch) => onUpdate((camp) => ({
+    ...camp, leads: (camp.leads || []).map(l => l.id === id ? { ...l, ...patch } : l),
+  }));
+  const surveyFor = (lead) => (c.survey?.responses || []).find(r => (r.name || "") === lead.name);
 
   const [copiedId, setCopiedId] = useState(null);
   const copySummary = (lead) => {
     const assignedUser = USERS_SEED.find(u => u.id === lead.assignedTo);
-    navigator.clipboard?.writeText(buildLeadSummary(lead, assignedUser));
+    navigator.clipboard?.writeText(buildLeadSummary(lead, assignedUser, surveyFor(lead)));
     setCopiedId(lead.id);
     setTimeout(() => setCopiedId(id2 => id2 === lead.id ? null : id2), 1500);
   };
@@ -3684,6 +3809,8 @@ function LeadsTab({ c, role, onUpdate }) {
                       ) : null}
                     </div>
                     <FollowUpRow lead={lead} onSave={(patch) => setFollowUp(lead.id, patch)} />
+                    <DriveOutcome lead={lead} onSave={(patch) => patchLead(lead.id, patch)} />
+                    {canEdit && <LeadOutcomeRow lead={lead} onSave={(patch) => patchLead(lead.id, patch)} />}
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, flexShrink: 0 }}>
                     <button onClick={() => copySummary(lead)} title="Zkopírovat shrnutí pro CRM" style={{ background: "none", border: "none", cursor: "pointer", color: copiedId === lead.id ? T.info : T.textDim, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
@@ -4130,10 +4257,26 @@ function TeamReportRow({ m }) {
   );
 }
 
-function ReportTab({ c }) {
+function ReportTab({ c, allCamps }) {
   const t          = budgetTotals(c.budget?.items);
   const confirmed  = c.parts.filter((p) => p.state === "potvrzen").length;
   const costPerPax = confirmed > 0 ? Math.round(t.realGross / confirmed) : null;
+
+  /* -- kapacitni prehled (Etapa 2 #8/#9) -- */
+  const cnt = (states) => c.parts.filter((p) => states.includes(p.state)).length;
+  const cap = {
+    invited:   cnt(["prihlasen", "potvrzen"]),
+    confirmed: cnt(["potvrzen"]),
+    declined:  cnt(["zrusil", "nemoc", "dovolena"]),
+    noReply:   cnt(["prihlasen"]),
+  };
+  const hist = (allCamps || [c]).reduce((a, cp) => {
+    a.no  += cp.parts.filter((p) => p.state === "nedostavil").length;
+    a.base += cp.parts.filter((p) => ["potvrzen", "nedostavil"].includes(p.state)).length;
+    return a;
+  }, { no: 0, base: 0 });
+  const noShowRate = hist.base >= 5 ? hist.no / hist.base : 0.10;
+  const predicted  = Math.round(cap.confirmed * (1 - noShowRate));
   const stateData  = STATE_ORDER
     .map((s) => ({ name: STATES[s].label, value: c.parts.filter((p) => p.state === s).length, color: STATES[s].color }))
     .filter((d) => d.value > 0);
@@ -4211,6 +4354,35 @@ function ReportTab({ c }) {
         <SumCard label="Plán bez DPH"   val={czk(t.expNet)}  color={T.textDim} />
         <SumCard label="Reálné bez DPH" val={czk(t.realNet)} color={T.textDim} />
         <SumCard label="Náklad / potvrzený účastník" val={costPerPax != null ? czk(costPerPax) : "—"} color={T.brass} />
+      </div>
+
+      {/* kapacitni prehled + predikce ucasti */}
+      <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 16, marginBottom: 24 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: T.cream, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <Users size={16} color={T.brass} /> Kapacitní přehled
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, marginBottom: 14 }}>
+          {[
+            { l: "Pozváni",     v: cap.invited,   c: T.info },
+            { l: "Potvrzeni",   v: cap.confirmed, c: T.greenLite },
+            { l: "Bez odpovědi",v: cap.noReply,   c: T.warn },
+            { l: "Odmítli",     v: cap.declined,  c: T.danger },
+          ].map((x) => (
+            <div key={x.l} style={{ background: T.bg, border: `1px solid ${x.c}44`, borderRadius: 9, padding: "10px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: x.c }}>{x.v}</div>
+              <div style={{ fontSize: 11, color: T.textDim }}>{x.l}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, background: `${T.brass}12`, border: `1px solid ${T.brass}44`, borderRadius: 9, padding: "11px 14px", flexWrap: "wrap" }}>
+          <TrendingUp size={18} color={T.brass} />
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: 13, color: T.cream, fontWeight: 600 }}>Predikce reálné účasti: <span style={{ color: T.brass }}>≈ {predicted}</span> z {cap.confirmed} potvrzených</div>
+            <div style={{ fontSize: 11.5, color: T.textDim, marginTop: 2 }}>
+              No-show míra {(noShowRate * 100).toFixed(0)} %{hist.base >= 5 ? ` (z ${hist.base} hist. potvrzení napříč akcemi)` : " (výchozí odhad — málo historických dat)"}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* grafy */}
