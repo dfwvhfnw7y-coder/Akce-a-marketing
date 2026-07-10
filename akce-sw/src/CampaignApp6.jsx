@@ -13,12 +13,23 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.21";
-const APP_BUILD = "2026-07-10 20:55";
+const APP_VERSION = "0.22";
+const APP_BUILD = "2026-07-10 21:33";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.22",
+    date: "10. 7. 2026",
+    title: "Doladění rezervací — žádné tiché přepisy, snadná náprava po změně nastavení",
+    items: [
+      "✋ Přiřazení zákazníka do slotu, kde už je naplánovaná (nepotvrzená) jízda někoho jiného, se teď zeptá — dřív ji potichu přepsalo. (Potvrzené jízdy byly chráněné už dřív.)",
+      "🗑️ Smazání vozu vypíše i naplánované (nejen potvrzené) jízdy, které tím zmizí — ať se na ně nezapomene.",
+      "↻ Když po změně délky/přípravy jízdy spadnou rezervace do varovného pruhu, stačí kliknout „Zkusit znovu zařadit\" — appka je vrátí na jejich čas nebo nejbližší volný slot.",
+      "🧭 Délka jízdy a čas na přípravu se při ÚPRAVĚ akce mění jen na záložce Testovací jízdy (kde běží ochrana rezervací). Průvodce je nastavuje jen při zakládání — konec tiché nekonzistence mezi průvodcem a mřížkou.",
+    ],
+  },
   {
     version: "0.21",
     date: "10. 7. 2026",
@@ -1554,19 +1565,31 @@ function CreateWizard({ onClose, onCreate, editCampaign }) {
                 ))}
               </div>
               {testCars.length < 10 && <div style={{ marginTop: 7 }}><Btn kind="ghost" icon={Plus} small onClick={() => setTestCars([...testCars, mkCar("")])}>Přidat vůz</Btn></div>}
-              <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
-                <div style={{ width: 140 }}><label style={lbl}>Délka jízdy</label>
-                  <select style={inputStyle} value={info.driveInterval || 30} onChange={(e) => setInfo({ ...info, driveInterval: +e.target.value })}>
-                    {DRIVE_INTERVALS.map((m) => <option key={m} value={m}>{m} min</option>)}
-                  </select>
+              {/* v0.22: délku a přípravu lze v průvodci nastavit jen při ZAKLÁDÁNÍ akce.
+                 Při editaci se mění výhradně na záložce Testovací jízdy, kde běží ochrana
+                 rezervací (ukotvení na absolutní čas + orphan pruh). Odstraněna tichá
+                 divergence mezi průvodcem a mřížkou. */}
+              {!isEdit ? (
+                <>
+                  <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+                    <div style={{ width: 140 }}><label style={lbl}>Délka jízdy</label>
+                      <select style={inputStyle} value={info.driveInterval || 30} onChange={(e) => setInfo({ ...info, driveInterval: +e.target.value })}>
+                        {DRIVE_INTERVALS.map((m) => <option key={m} value={m}>{m} min</option>)}
+                      </select>
+                    </div>
+                    <div style={{ width: 160 }}><label style={lbl}>❗ Čas na přípravu vozu</label>
+                      <select style={inputStyle} value={info.drivePrep ?? 5} onChange={(e) => setInfo({ ...info, drivePrep: +e.target.value })}>
+                        {PREP_TIMES.map((m) => <option key={m} value={m}>{m === 0 ? "bez rezervy" : `+${m} min`}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 6, lineHeight: 1.4 }}>❗ Čas na přípravu = rezerva za každou jízdou, kdyby se kolona zpozdila nebo někdo přijel pozdě.</div>
+                </>
+              ) : (
+                <div style={{ fontSize: 11.5, color: T.textDim, marginTop: 12, padding: "9px 11px", background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, lineHeight: 1.5 }}>
+                  ⏱️ Délku jízdy ({info.driveInterval || 30} min) a čas na přípravu ({(info.drivePrep ?? 5) === 0 ? "bez rezervy" : `+${info.drivePrep ?? 5} min`}) změníš přímo na záložce <b style={{ color: T.brass }}>Testovací jízdy</b> — tam se rezervace bezpečně přeskládají a nic se neztratí.
                 </div>
-                <div style={{ width: 160 }}><label style={lbl}>❗ Čas na přípravu vozu</label>
-                  <select style={inputStyle} value={info.drivePrep ?? 5} onChange={(e) => setInfo({ ...info, drivePrep: +e.target.value })}>
-                    {PREP_TIMES.map((m) => <option key={m} value={m}>{m === 0 ? "bez rezervy" : `+${m} min`}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div style={{ fontSize: 11, color: T.textDim, marginTop: 6, lineHeight: 1.4 }}>❗ Čas na přípravu = rezerva za každou jízdou, kdyby se kolona zpozdila nebo někdo přijel pozdě.</div>
+              )}
             </FRow>
           )}
           {isGolf && (
@@ -4490,6 +4513,10 @@ function TestDriveGrid({ c, role, onUpdate }) {
       alert("Tento zákazník už v tomto čase jede jiný vůz. Jeden zákazník nemůže testovat dvě auta najednou.");
       return;
     }
+    // v0.22: buňka už drží naplánovanou (nepotvrzenou) jízdu JINÉHO zákazníka → nepřepisuj potichu, zeptej se.
+    // (potvrzené řeší ochrana výše; stejná pojistka jako u bloku)
+    if (existing && !existing.blocked && existing.partId && existing.partId !== partId &&
+        !window.confirm(`V tomto slotu je naplánovaná jízda: ${custName(existing.partId)}. Přepsat ji za ${custName(partId)}?`)) { setCellMenu(null); return; }
     patchRes((rs) => [...rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId, blocked: false, startMin: slotMin(slotIndex) }]);
     setCellMenu(null);
   };
@@ -4572,8 +4599,16 @@ function TestDriveGrid({ c, role, onUpdate }) {
   const addCar    = () => onUpdate((camp) => ({ ...camp, testCars: [...(camp.testCars || []), mkCar("Nový model")] }));
   const updCar    = (id, patch) => onUpdate((camp) => ({ ...camp, testCars: (camp.testCars || []).map((car) => car.id === id ? { ...car, ...patch } : car) }));
   const removeCar = (id) => {
-    const affected = liveRes.filter((r) => r.carId === id && !r.blocked && r.partId && confirmedIds.has(r.partId));
-    if (affected.length && !window.confirm(`Vůz má ${affected.length} potvrzenou jízdu (${affected.map((r) => custName(r.partId)).join(", ")}). Smazat vůz i s těmito jízdami?`)) return;
+    // v0.22: varuj u VŠECH naplánovaných jízd (nejen potvrzených) — nepotvrzené se dřív mazaly beze slova.
+    const confirmed = liveRes.filter((r) => r.carId === id && !r.blocked && r.partId && confirmedIds.has(r.partId));
+    const planned   = liveRes.filter((r) => r.carId === id && !r.blocked && r.partId && !confirmedIds.has(r.partId));
+    const affected  = [...confirmed, ...planned];
+    if (affected.length) {
+      const parts = [];
+      if (confirmed.length) parts.push(`${confirmed.length}× potvrzená (${confirmed.map((r) => custName(r.partId)).join(", ")})`);
+      if (planned.length)   parts.push(`${planned.length}× naplánovaná (${planned.map((r) => custName(r.partId)).join(", ")})`);
+      if (!window.confirm(`Vůz má ${affected.length} jízd${affected.length === 1 ? "u" : ""}: ${parts.join(" a ")}. Smazat vůz i s těmito jízdami?`)) return;
+    }
     onUpdate((camp) => ({ ...camp, testCars: (camp.testCars || []).filter((car) => car.id !== id), reservations: (camp.reservations || []).filter((r) => r.carId !== id) }));
   };
 
@@ -4589,6 +4624,31 @@ function TestDriveGrid({ c, role, onUpdate }) {
       return { ...r, startMin: sm, orphan: true };
     });
     return { ...merged, reservations: rr };
+  });
+
+  // v0.22: zkus znovu zařadit osiřelé rezervace do aktuální mřížky.
+  // 1) přesná shoda absolutního času, jinak 2) nejbližší VOLNÝ slot na stejném voze do tolerance
+  //    (tolerance = délka jízdy + prep, tj. „o jeden slot vedle"). Co se netrefí, zůstane orphan.
+  const TOL = (c.driveInterval || 30) + (prep || 0);
+  const reseatOrphans = () => patchRes((rs) => {
+    const occupied = new Set(rs.filter((r) => !r.orphan).map((r) => `${r.carId}@${r.slotIndex}`));
+    return rs.map((r) => {
+      if (!r.orphan) return r;
+      // 1) přesná shoda času
+      let target = r.startMin != null ? slots.find((s) => s.from === r.startMin) : null;
+      // 2) nejbližší volný slot do tolerance
+      if (!target && r.startMin != null) {
+        const cand = slots
+          .filter((s) => Math.abs(s.from - r.startMin) <= TOL && !occupied.has(`${r.carId}@${s.idx}`))
+          .sort((a, b) => Math.abs(a.from - r.startMin) - Math.abs(b.from - r.startMin));
+        target = cand[0] || null;
+      }
+      if (target && !occupied.has(`${r.carId}@${target.idx}`)) {
+        occupied.add(`${r.carId}@${target.idx}`);
+        return { ...r, slotIndex: target.idx, startMin: target.from, orphan: false };
+      }
+      return r;
+    });
   });
 
   // přidání zákazníka "z ulice" — vytvoří účastníka a rovnou rezervuje.
@@ -4647,6 +4707,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
         <div style={{ background: `${T.danger}14`, border: `1px solid ${T.danger}66`, borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.danger, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
             <AlertTriangle size={15} /> {orphanRes.length} rezervací po změně nastavení nesedí do mřížky — nezmizely, ale vyřeš je ručně.
+            {canEdit && <button onClick={reseatOrphans} style={{ marginLeft: "auto", background: `${T.brass}22`, border: `1px solid ${T.brass}66`, borderRadius: 6, color: T.brass, fontSize: 11.5, cursor: "pointer", padding: "3px 10px", fontFamily: "inherit", fontWeight: 600 }}>↻ Zkusit znovu zařadit</button>}
           </div>
           {orphanRes.map((r) => (
             <div key={r.id} style={{ fontSize: 12, color: T.creamDim, display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
