@@ -13,12 +13,24 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.20";
-const APP_BUILD = "2026-07-10 20:05";
+const APP_VERSION = "0.21";
+const APP_BUILD = "2026-07-10 20:25";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.21",
+    date: "10. 7. 2026",
+    title: "Bezpečné rezervace — potvrzená jízda nezmizí ani nezmění čas",
+    items: [
+      "🔒 Každá rezervace je nově ukotvená na svůj absolutní čas. Když změníš začátek, konec, délku jízdy nebo přípravu, rezervace si drží svůj čas — appka ji nikdy tiše neposune.",
+      "⚠️ Co po změně nastavení do mřížky nesedí, se neztratí: objeví se nahoře varovný pruh s původním časem a možností ručně uvolnit.",
+      "🛑 Blok (oběd, pauza, tankování) teď před přepsáním i nepotvrzené naplánované jízdy vyžaduje potvrzení — už nic tiše nepřepíše.",
+      "🗑️ Smazání vozu s potvrzenými jízdami se zeptá a vypíše dotčené zákazníky.",
+      "ℹ️ Přejmenování modelu vozu je bezpečné — rezervace zůstávají (jsou vázané na vůz, ne na název).",
+    ],
+  },
   {
     version: "0.20",
     date: "10. 7. 2026",
@@ -4434,14 +4446,19 @@ function TestDriveGrid({ c, role, onUpdate }) {
   // potvrzení/přihlášení zákazníci = kandidáti na rezervaci
   const customers = c.parts.filter((p) => STARTLIST_OK.includes(p.state));
 
-  const resAt = (carId, slotIndex) => reservations.find((r) => r.carId === carId && r.slotIndex === slotIndex);
+  // v0.21: rezervace ukotvene na absolutni cas (startMin). Osirele (po zmene parametru nesedi do mrizky) drzime stranou, ale nemazeme.
+  const slotMin = (idx) => { const s = slots.find((x) => x.idx === idx); return s ? s.from : null; };
+  const liveRes = reservations.filter((r) => !r.orphan);
+  const orphanRes = reservations.filter((r) => r.orphan);
+
+  const resAt = (carId, slotIndex) => liveRes.find((r) => r.carId === carId && r.slotIndex === slotIndex);
   const custName = (partId) => customers.find((p) => p.id === partId)?.data[nameId] || c.parts.find((p) => p.id === partId)?.data[nameId] || "—";
-  const custResCount = (partId) => reservations.filter((r) => r.partId === partId && !r.blocked).length;
+  const custResCount = (partId) => liveRes.filter((r) => r.partId === partId && !r.blocked).length;
 
   // je zákazník už zarezervovaný v tomto časovém slotu (na JINÉ rezervaci)?
   // exceptResId = id rezervace, kterou přesouváme (tu ignorujeme, nekoliduje sama se sebou)
   const custBusyAt = (partId, slotIndex, exceptResId) =>
-    reservations.some((r) => r.partId === partId && r.slotIndex === slotIndex && r.id !== exceptResId && !r.blocked);
+    liveRes.some((r) => r.partId === partId && r.slotIndex === slotIndex && r.id !== exceptResId && !r.blocked);
 
   // je auto dostupné v daném slotu? (pozdní příjezd → availFrom)
   const carAvailable = (car, slot) => {
@@ -4455,7 +4472,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
   const confirmedIds = new Set(c.parts.filter((p) => p.state === "potvrzen").map((p) => p.id));
   const isProtectedRes = (r) => !!r && !r.blocked && !!r.partId && confirmedIds.has(r.partId);
   const protectedAt = (carId, slotIndex) => {
-    const r = reservations.find((x) => x.carId === carId && x.slotIndex === slotIndex);
+    const r = liveRes.find((x) => x.carId === carId && x.slotIndex === slotIndex);
     return isProtectedRes(r) ? r : null;
   };
 
@@ -4472,7 +4489,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
       alert("Tento zákazník už v tomto čase jede jiný vůz. Jeden zákazník nemůže testovat dvě auta najednou.");
       return;
     }
-    patchRes((rs) => [...rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId, blocked: false }]);
+    patchRes((rs) => [...rs.filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId, blocked: false, startMin: slotMin(slotIndex) }]);
     setCellMenu(null);
   };
   // zablokuje jeden nebo víc po sobě jdoucích slotů podle zvolené délky (min).
@@ -4499,12 +4516,20 @@ function TestDriveGrid({ c, role, onUpdate }) {
       return;
     }
 
+    // ochrana: blok by přepsal i nepotvrzenou jízdu zákazníka -> zeptat se
+    const willOverwrite = [];
+    for (let k = 0; k < usable; k++) {
+      const ex = resAt(carId, slotIndex + k);
+      if (ex && !ex.blocked && ex.partId) willOverwrite.push(custName(ex.partId));
+    }
+    if (willOverwrite.length && !window.confirm(`Blok přepíše naplánovanou jízdu: ${willOverwrite.join(", ")}. Pokračovat?`)) { setCellMenu(null); setBlockPick(null); return; }
+
     patchRes((rs) => {
       let out = [...rs];
       for (let k = 0; k < usable; k++) {
         const idx = slotIndex + k;
         out = out.filter((r) => !(r.carId === carId && r.slotIndex === idx));
-        out.push({ id: uid(), carId, slotIndex: idx, partId: null, blocked: true, note: type });
+        out.push({ id: uid(), carId, slotIndex: idx, partId: null, blocked: true, note: type, startMin: slotMin(idx) });
       }
       return out;
     });
@@ -4528,7 +4553,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
   // přesun rezervace do jiné buňky (drag&drop) — cíl musí být volný, auto dostupné, zákazník v čase volný
   const moveRes = (resId, carId, slotIndex) => {
     if (!canEdit) return;
-    const r = reservations.find((x) => x.id === resId);
+    const r = liveRes.find((x) => x.id === resId);
     if (!r) return;
     if (resAt(carId, slotIndex)) return;
     const car = cars.find((x) => x.id === carId);
@@ -4539,15 +4564,31 @@ function TestDriveGrid({ c, role, onUpdate }) {
     // (přesun na jiné auto ve stejném čase je OK, čas se nemění)
     if (isProtectedRes(r) && slotIndex !== r.slotIndex &&
         !window.confirm(`${custName(r.partId)} má potvrzený čas z pozvánky. Opravdu přesunout na jiný čas?`)) return;
-    patchRes((rs) => rs.map((x) => x.id === resId ? { ...x, carId, slotIndex } : x));
+    patchRes((rs) => rs.map((x) => x.id === resId ? { ...x, carId, slotIndex, startMin: slotMin(slotIndex) } : x));
   };
 
   // správa vozového parku
   const addCar    = () => onUpdate((camp) => ({ ...camp, testCars: [...(camp.testCars || []), mkCar("Nový model")] }));
   const updCar    = (id, patch) => onUpdate((camp) => ({ ...camp, testCars: (camp.testCars || []).map((car) => car.id === id ? { ...car, ...patch } : car) }));
-  const removeCar = (id) => onUpdate((camp) => ({ ...camp, testCars: (camp.testCars || []).filter((car) => car.id !== id), reservations: (camp.reservations || []).filter((r) => r.carId !== id) }));
+  const removeCar = (id) => {
+    const affected = liveRes.filter((r) => r.carId === id && !r.blocked && r.partId && confirmedIds.has(r.partId));
+    if (affected.length && !window.confirm(`Vůz má ${affected.length} potvrzenou jízdu (${affected.map((r) => custName(r.partId)).join(", ")}). Smazat vůz i s těmito jízdami?`)) return;
+    onUpdate((camp) => ({ ...camp, testCars: (camp.testCars || []).filter((car) => car.id !== id), reservations: (camp.reservations || []).filter((r) => r.carId !== id) }));
+  };
 
-  const setDrive = (patch) => onUpdate((camp) => ({ ...camp, ...patch }));
+  // zmena parametru jizd: rezervace drzi svuj absolutni cas (startMin). Realign indexu na cas; co casove nesedi -> orphan (nezmizi).
+  const setDrive = (patch) => onUpdate((camp) => {
+    const merged = { ...camp, ...patch };
+    const ns = driveSlots(merged.driveStart, merged.driveEnd, merged.driveInterval || 30, merged.drivePrep || 0);
+    const byMin = new Map(ns.map((s) => [s.from, s.idx]));
+    const rr = (merged.reservations || []).map((r) => {
+      let sm = r.startMin;
+      if (sm == null) { const s = ns.find((x) => x.idx === r.slotIndex); sm = s ? s.from : null; }
+      if (sm != null && byMin.has(sm)) return { ...r, startMin: sm, slotIndex: byMin.get(sm), orphan: false };
+      return { ...r, startMin: sm, orphan: true };
+    });
+    return { ...merged, reservations: rr };
+  });
 
   // přidání zákazníka "z ulice" — vytvoří účastníka a rovnou rezervuje.
   // makeLead=true → založí i lead (aby se na něj nezapomnělo, když nemá e-mail na dotazník).
@@ -4569,7 +4610,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
       const next = {
         ...camp,
         parts: [...camp.parts, newPart],
-        reservations: [...(camp.reservations || []).filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId: pid, blocked: false }],
+        reservations: [...(camp.reservations || []).filter((r) => !(r.carId === carId && r.slotIndex === slotIndex)), { id: uid(), carId, slotIndex, partId: pid, blocked: false, startMin: slotMin(slotIndex) }],
       };
       if (makeLead) {
         next.leads = [...(camp.leads || []), {
@@ -4584,9 +4625,9 @@ function TestDriveGrid({ c, role, onUpdate }) {
     setCellMenu(null);
   };
 
-  const totalBooked = reservations.filter((r) => !r.blocked).length;
+  const totalBooked = liveRes.filter((r) => !r.blocked).length;
   const totalCells  = cars.length * slots.length;
-  const totalBlocked = reservations.filter((r) => r.blocked).length;
+  const totalBlocked = liveRes.filter((r) => r.blocked).length;
   // kolik slotů sežralo zpoždění ("jezdí od") napříč všemi vozy
   const unavailCells = cars.reduce((acc, car) => acc + slots.filter((s) => !carAvailable(car, s)).length, 0);
   // volné sloty — přímý průchod, ať to sedí i při kombinaci bloků a zpoždění (žádná inkluze-exkluze)
@@ -4601,6 +4642,19 @@ function TestDriveGrid({ c, role, onUpdate }) {
 
   return (
     <div>
+      {orphanRes.length > 0 && (
+        <div style={{ background: `${T.danger}14`, border: `1px solid ${T.danger}66`, borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.danger, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
+            <AlertTriangle size={15} /> {orphanRes.length} rezervací po změně nastavení nesedí do mřížky — nezmizely, ale vyřeš je ručně.
+          </div>
+          {orphanRes.map((r) => (
+            <div key={r.id} style={{ fontSize: 12, color: T.creamDim, display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+              <span>{r.blocked ? blockLabel(r.note) : custName(r.partId)} · původní čas {r.startMin != null ? minToHM(r.startMin) : "?"} · {(cars.find((x) => x.id === r.carId) || {}).model || "smazaný vůz"}</span>
+              {canEdit && <button onClick={() => patchRes((rs) => rs.filter((x) => x.id !== r.id))} style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: 6, color: T.textDim, fontSize: 10.5, cursor: "pointer", padding: "1px 7px", fontFamily: "inherit" }}>uvolnit</button>}
+            </div>
+          ))}
+        </div>
+      )}
       {/* nastavení času */}
       <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginBottom: 14, background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14, flexWrap: "wrap" }}>
         <div style={{ width: 110 }}><label style={lbl}>Začátek</label><input type="time" value={c.driveStart || ""} onChange={(e) => setDrive({ driveStart: e.target.value })} style={inputStyle} disabled={!canEdit} /></div>
@@ -4648,7 +4702,7 @@ function TestDriveGrid({ c, role, onUpdate }) {
                   if (v) {
                     const [h, m] = v.split(":").map(Number);
                     const cut = h * 60 + m;
-                    const clashes = reservations
+                    const clashes = liveRes
                       .filter((r) => r.carId === car.id && isProtectedRes(r))
                       .map((r) => ({ r, slot: slots.find((s) => s.idx === r.slotIndex) }))
                       .filter((x) => x.slot && x.slot.from < cut);
