@@ -14,7 +14,7 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.21";
-const APP_BUILD = "2026-07-10 20:25";
+const APP_BUILD = "2026-07-10 20:55";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
@@ -851,8 +851,9 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 38, height: 38, borderRadius: 10, background: T.green, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${T.brass}` }}><Layers size={18} color={T.brass} /></div>
           <div>
-            <div style={{ fontSize: 17, fontWeight: 600 }}>Akce S&W</div>
-            <div style={{ fontSize: 12, color: T.textDim }}>Dashboard · rozpočet · vybavení · report · schválení <span onClick={() => setShowChangelog(true)} title="Zobrazit novinky ve verzi" style={{ color: T.brass, opacity: .75, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}>· v{APP_VERSION} · {APP_BUILD} 🎉</span></div>
+            <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: .3, lineHeight: 1.1 }}>AKCE <span style={{ color: T.brass }}>{"S. & W."}</span> <span style={{ fontWeight: 500 }}>Automobily</span> <span style={{ fontSize: 11, color: T.textDim, fontWeight: 400 }}>s.r.o.</span></div>
+            <div style={{ fontSize: 11.5, fontStyle: "italic", color: T.textDim, opacity: .65, marginTop: 1, letterSpacing: .2 }}>Pomáhá proměnit zájem v příležitost</div>
+            <div style={{ fontSize: 11.5, color: T.textDim, marginTop: 8, paddingTop: 6, borderTop: `1px solid ${T.line}` }}>Dashboard · rozpočet · report · schválení <span onClick={() => setShowChangelog(true)} title="Zobrazit novinky ve verzi" style={{ color: T.brass, opacity: .75, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}>· v{APP_VERSION} · {APP_BUILD} 🎉</span></div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
