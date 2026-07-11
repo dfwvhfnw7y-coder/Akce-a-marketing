@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { createFirebaseStore } from "./firebaseStore";
 import {
   Plus, Trash2, Flag, ArrowLeft, AlertTriangle, ShieldCheck, EyeOff, Eye, UserPlus, X,
   TrendingUp, Layers, Lock, Type, AlignLeft, CalendarDays, AtSign, Phone, Hash, List,
@@ -14,7 +15,7 @@ import {
 } from "recharts";
 
 const APP_VERSION = "0.29";
-const APP_BUILD = "2026-07-11 13:18";
+const APP_BUILD = "__BUILD__";
 const SCHEMA_VERSION = 1;   // v0.29: verze Firestore schématu (Event + Snapshot) pro budoucí migrace
 
 /* ── Changelog / historie verzí ──
@@ -27,6 +28,8 @@ const CHANGELOG = [
       "Firebase F0 groundwork (bez závislosti na Firebase SDK, lokální chování beze změny): SCHEMA_VERSION, schemaVersion u Event i Snapshotu, DATA_BACKEND flag.",
       "compose() — jediný zdroj pravdy pro skládání event + participants + leads + reservations + snapshot do objektu c.",
       "Firebase SDK větev store (F1–F3) se přidává samostatně až po npm install firebase.",
+      "Lead se automaticky přiřadí prodejci, který zákazníka pozval (dle pozvavšího účastníka, jinak přidávající prodejce); pole zůstává editovatelné — host z ulice / hosteska / přerozdělení vedoucím.",
+      "CRM profil účastníka: prodejce vidí kategorii, důvod pozvání i historii vozidel u všech; edituje je jen u účastníků, které založil nebo má přiřazené (canEditPart). Stav pozvánky zůstává omezený.",
     ],
   },
   {
@@ -370,6 +373,12 @@ const USERS_SEED = [
 ];
 const initUsers = () => USERS_SEED;
 
+// ── F1: modulová cache uživatelů (fallback = seed). Aktualizuje ji useUsers z Firestore.
+//    Slouží ne-komponentním funkcím (exporty), které nemohou volat React hook. ──
+let USERS_CACHE = USERS_SEED;
+// depts = JEDINÝ zdroj oddělení; kde UI dřív četlo u.dept, použij deptOf(u).
+const deptOf = (u) => (u?.depts?.[0] ?? u?.dept ?? "");
+
 
 const CRM_CATEGORIES = [
   "Velkoodběratel", "Obchodní partner", "Dodavatel", "Společník",
@@ -441,6 +450,8 @@ const STATES = {
   nedostavil: { label: "Nedostavil se",     color: "#8a5a8a" },
 };
 const STATE_ORDER  = Object.keys(STATES);
+// v0.29: prodejce smí sám nastavit jen tyto stavy (ne schvalovat/potvrzovat/vracet workflow).
+const SALES_SETTABLE_STATES = ["zrusil", "nemoc", "dovolena", "nedostavil"];
 const OCCUPIES     = ["ceka", "prihlasen", "potvrzen"];
 const STARTLIST_OK = ["potvrzen", "prihlasen"];
 
@@ -638,8 +649,16 @@ const MODELS = {
 };
 
 const seed = () => {
-  const f1 = baseFields();
-  const hcpId = uid();
+  // F3: deterministická fixture — stabilní ID + zachovaná referenční integrita
+  //     (fieldMeta, data klíče, reservations.carId/partId). Globální baseFields() se nemění.
+  const fieldsFor = (evtId) => [
+    { id: `${evtId}:f-name`,  type: "text",  label: "Jméno a příjmení", required: true,  options: "" },
+    { id: `${evtId}:f-email`, type: "email", label: "Email",             required: true,  options: "" },
+    { id: `${evtId}:f-phone`, type: "phone", label: "Telefon",           required: false, options: "" },
+  ];
+  const f1 = fieldsFor("evt-golf-2026");
+  const hcpId = "evt-golf-2026:f-hcp";
+  let golfPartN = 0;
   const mk = (n, e, p, st, note = "", hcp = "", grp = null, eq = {}, crm = {}, addedBy = null) => {
     // dohledej prodejce podle jména v addedBy a doplň userId + divize
     let enrichedAddedBy = addedBy;
@@ -652,12 +671,12 @@ const seed = () => {
       }
     }
     return {
-      id: uid(), state: st, note, flight: null, hcp, group: grp, eqChoice: eq, crm, addedBy: enrichedAddedBy, assignedTo,
+      id: `evt-golf-2026:p${++golfPartN}`, state: st, note, flight: null, hcp, group: grp, eqChoice: eq, crm, addedBy: enrichedAddedBy, assignedTo,
       data: { [f1[0].id]: n, [f1[1].id]: e, [f1[2].id]: p },
     };
   };
   const golf = {
-    id: uid(), name: "Golfový den", date: "2026-06-20", place: "Karlštejn",
+    id: "evt-golf-2026", name: "Golfový den", date: "2026-06-20", place: "Karlštejn",
     capacity: 12, owner: "me", activityType: "golf", approver: "mira",
     fields: [...f1, { id: hcpId, type: "number", label: "HCP (handicap)", required: false, options: "" }],
     fieldMeta: { nameId: f1[0].id, emailId: f1[1].id, phoneId: f1[2].id, hcpId },
@@ -743,22 +762,22 @@ const seed = () => {
     budget: {
       eventBudget: 100000,
       items: [
-        { id: uid(), name: "Pronájem hřiště", supplier: "Golf Karlštejn s.r.o.", note: "",           amountNet: 45000, vatRate: 21, isReal: false },
-        { id: uid(), name: "Catering",         supplier: "Gusto Catering",        note: "oběd+drink", amountNet: 28000, vatRate: 15, isReal: false },
-        { id: uid(), name: "Tisk materiálů",   supplier: "Tiskárna Alfa",         note: "",           amountNet: 3200,  vatRate: 21, isReal: true  },
-        { id: uid(), name: "Ceny pro vítěze",  supplier: "Sport depot",           note: "",           amountNet: 8000,  vatRate: 21, isReal: false },
+        { id: "evt-golf-2026:bud1", name: "Pronájem hřiště", supplier: "Golf Karlštejn s.r.o.", note: "",           amountNet: 45000, vatRate: 21, isReal: false },
+        { id: "evt-golf-2026:bud2", name: "Catering",         supplier: "Gusto Catering",        note: "oběd+drink", amountNet: 28000, vatRate: 15, isReal: false },
+        { id: "evt-golf-2026:bud3", name: "Tisk materiálů",   supplier: "Tiskárna Alfa",         note: "",           amountNet: 3200,  vatRate: 21, isReal: true  },
+        { id: "evt-golf-2026:bud4", name: "Ceny pro vítěze",  supplier: "Sport depot",           note: "",           amountNet: 8000,  vatRate: 21, isReal: false },
       ],
     },
   };
-  const f2 = baseFields();
+  const f2 = fieldsFor("evt-wine-2026");
   const wine = {
-    id: uid(), name: "Degustace vín", date: "2026-07-04", place: "Mikulov",
+    id: "evt-wine-2026", name: "Degustace vín", date: "2026-07-04", place: "Mikulov",
     capacity: 12, owner: "me", activityType: "degustace", approver: "tereza",
     fields: f2, fieldMeta: { nameId: f2[0].id, emailId: f2[1].id, phoneId: f2[2].id },
     startTime: "", interval: 15, groups: [], equipment: [],
     parts: [
-      { id: uid(), state: "ceka",     note: "Přidal: Dvořák", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f2[0].id]: "Jan Novák",    [f2[1].id]: "jan.novak@email.cz", [f2[2].id]: "+420 601 234 567" } },
-      { id: uid(), state: "prihlasen",note: "",               flight: null, hcp: "", group: null, eqChoice: {}, data: { [f2[0].id]: "Karel Veselý", [f2[1].id]: "karel@golf.cz",      [f2[2].id]: "+420 605 333 111" } },
+      { id: "evt-wine-2026:p1", state: "ceka",     note: "Přidal: Dvořák", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f2[0].id]: "Jan Novák",    [f2[1].id]: "jan.novak@email.cz", [f2[2].id]: "+420 601 234 567" } },
+      { id: "evt-wine-2026:p2", state: "prihlasen",note: "",               flight: null, hcp: "", group: null, eqChoice: {}, data: { [f2[0].id]: "Karel Veselý", [f2[1].id]: "karel@golf.cz",      [f2[2].id]: "+420 605 333 111" } },
     ],
     leads: [],
     needs: { items: [] },
@@ -772,21 +791,21 @@ const seed = () => {
     survey: { fields: [], responses: [], sent: false, sentAt: null },
     budget: { eventBudget: 0, items: [] },
   };
-  const f3 = baseFields();
+  const f3 = fieldsFor("evt-testdrive-2026");
   const tdCars = [
-    mkCar("EQS 580 4MATIC", "1AB 2345", "elektro, plné nabití"),
-    mkCar("GLE 450 4MATIC", "2CD 6789", ""),
-    mkCar("AMG GT 63 S",    "3EF 1011", "sportovní, jen zkušení řidiči"),
-    mkCar("Sprinter 319 CDI","4GH 1213", "užitkový"),
+    { id: "evt-testdrive-2026:car1", model: "EQS 580 4MATIC",  spz: "1AB 2345", note: "elektro, plné nabití",         availFrom: null },
+    { id: "evt-testdrive-2026:car2", model: "GLE 450 4MATIC",  spz: "2CD 6789", note: "",                             availFrom: null },
+    { id: "evt-testdrive-2026:car3", model: "AMG GT 63 S",     spz: "3EF 1011", note: "sportovní, jen zkušení řidiči", availFrom: null },
+    { id: "evt-testdrive-2026:car4", model: "Sprinter 319 CDI", spz: "4GH 1213", note: "užitkový",                     availFrom: null },
   ];
   const tdParts = [
-    { id: uid(), state: "potvrzen", note: "", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Jan Novák",     [f3[1].id]: "jan.novak@email.cz", [f3[2].id]: "+420 601 234 567" } },
-    { id: uid(), state: "potvrzen", note: "", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Eva Dvořáková", [f3[1].id]: "eva.d@firma.cz",      [f3[2].id]: "+420 777 888 999" } },
-    { id: uid(), state: "prihlasen",note: "", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Petr Svoboda",  [f3[1].id]: "p.svoboda@mail.com",  [f3[2].id]: "+420 602 111 222" } },
-    { id: uid(), state: "ceka",     note: "Přidal: Novotný", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Ivana Králová", [f3[1].id]: "ivana.k@email.cz",   [f3[2].id]: "+420 606 777 888" } },
+    { id: "evt-testdrive-2026:p1", state: "potvrzen", note: "", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Jan Novák",     [f3[1].id]: "jan.novak@email.cz", [f3[2].id]: "+420 601 234 567" } },
+    { id: "evt-testdrive-2026:p2", state: "potvrzen", note: "", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Eva Dvořáková", [f3[1].id]: "eva.d@firma.cz",      [f3[2].id]: "+420 777 888 999" } },
+    { id: "evt-testdrive-2026:p3", state: "prihlasen",note: "", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Petr Svoboda",  [f3[1].id]: "p.svoboda@mail.com",  [f3[2].id]: "+420 602 111 222" } },
+    { id: "evt-testdrive-2026:p4", state: "ceka",     note: "Přidal: Novotný", flight: null, hcp: "", group: null, eqChoice: {}, data: { [f3[0].id]: "Ivana Králová", [f3[1].id]: "ivana.k@email.cz",   [f3[2].id]: "+420 606 777 888" } },
   ];
   const testdrive = {
-    id: uid(), name: "Den testovacích jízd", date: "2026-07-18", place: "S&W Praha-Chodov",
+    id: "evt-testdrive-2026", name: "Den testovacích jízd", date: "2026-07-18", place: "S&W Praha-Chodov",
     capacity: 20, owner: "me", activityType: "testjizda", approvers: ["pavel"], approver: "pavel",
     fields: f3, fieldMeta: { nameId: f3[0].id, emailId: f3[1].id, phoneId: f3[2].id },
     startTime: "", interval: 15, groups: [], equipment: [],
@@ -795,21 +814,21 @@ const seed = () => {
     guestMode: "invited",
     driveStart: "09:00", driveEnd: "16:00", driveInterval: 30, drivePrep: 5,
     reservations: [
-      { id: uid(), carId: tdCars[0].id, slotIndex: 0, partId: tdParts[0].id },
-      { id: uid(), carId: tdCars[0].id, slotIndex: 2, partId: tdParts[1].id },
-      { id: uid(), carId: tdCars[1].id, slotIndex: 1, partId: tdParts[0].id },
-      { id: uid(), carId: tdCars[2].id, slotIndex: 3, partId: null, blocked: true, note: "Tankování" },
+      { id: "evt-testdrive-2026:res1", carId: tdCars[0].id, slotIndex: 0, partId: tdParts[0].id },
+      { id: "evt-testdrive-2026:res2", carId: tdCars[0].id, slotIndex: 2, partId: tdParts[1].id },
+      { id: "evt-testdrive-2026:res3", carId: tdCars[1].id, slotIndex: 1, partId: tdParts[0].id },
+      { id: "evt-testdrive-2026:res4", carId: tdCars[2].id, slotIndex: 3, partId: null, blocked: true, note: "Tankování" },
     ],
     parts: tdParts,
     leads: [],
     needs: { items: [] },
     team: { members: [], teamsUrl: "", multiDay: false },
     invite: { bgColor: "#12233a", headerImg: "", fontFamily: "Georgia, serif", fontSize: 15, blocks: [
-      { id: uid(), type: "header", content: "Den testovacích jízd S&W", align: "center", bold: true, size: 20, color: "#f2ede0" },
-      { id: uid(), type: "text", content: "Vážený/á {{jmeno}},\n\nzveme Vás vyzkoušet si naše vozy naživo. Vyberte si model a čas, který Vám vyhovuje.", align: "left", bold: false, size: 14, color: "#e4e8de" },
-      { id: uid(), type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] },
-      { id: uid(), type: "confirm", label: "🚗 Rezervovat testovací jízdu", url: "{{golf_odkaz}}", color: "#2e7d54" },
-      { id: uid(), type: "decline", label: "✖ Nemohu se zúčastnit", url: "{{odmitnout_odkaz}}", color: "#b4483a" },
+      { id: "evt-testdrive-2026:b1", type: "header", content: "Den testovacích jízd S&W", align: "center", bold: true, size: 20, color: "#f2ede0" },
+      { id: "evt-testdrive-2026:b2", type: "text", content: "Vážený/á {{jmeno}},\n\nzveme Vás vyzkoušet si naše vozy naživo. Vyberte si model a čas, který Vám vyhovuje.", align: "left", bold: false, size: 14, color: "#e4e8de" },
+      { id: "evt-testdrive-2026:b3", type: "infobox", items: [{ icon: "📅", label: "Datum", value: "{{datum}}" }, { icon: "📍", label: "Místo", value: "{{misto}}" }] },
+      { id: "evt-testdrive-2026:b4", type: "confirm", label: "🚗 Rezervovat testovací jízdu", url: "{{golf_odkaz}}", color: "#2e7d54" },
+      { id: "evt-testdrive-2026:b5", type: "decline", label: "✖ Nemohu se zúčastnit", url: "{{odmitnout_odkaz}}", color: "#b4483a" },
     ] },
     inviteMode: "batch",
     inviteTemplate: "",
@@ -1004,6 +1023,9 @@ const CORP_FONT_CSS = `
    ══════════════════════════════════════════════════════════════ */
 const DATA_BACKEND = "local";   // "local" | "firebase" — rollback páka (F0). Firebase větev viz firebaseStore modul.
 
+// ── F1: Users z Firestore. NEZÁVISLÝ flag na DATA_BACKEND (kampaně + WRITE path zůstávají lokální). ──
+const USERS_BACKEND = "firebase";                        // "local" | "firebase"
+
 /*  compose() — JEDINÝ zdroj pravdy pro skládání objektu c z Firestore částí.
     Event dokument NEobsahuje parts/leads/reservations/finalReport (jsou to podkolekce / snapshot doc).
     compose je čistá funkce: stejný vstup → stejný c. Pokud vznikne nekonzistence Firestore↔UI, hledá se TADY. */
@@ -1016,6 +1038,22 @@ const compose = (event, { participants = [], leads = [], reservations = [], snap
   schemaVersion: event.schemaVersion ?? SCHEMA_VERSION,
 });
 
+// ── F1: Firebase store instance — AŽ po compose (compose se předává dovnitř). ──
+const fb = createFirebaseStore({ compose, SCHEMA_VERSION });
+
+
+// ── F1: hook uživatelů — stejné rozhraní jako USERS_SEED (vrací pole). ──
+function useUsers() {
+  const [users, setUsers] = useState(USERS_SEED);        // fallback = dnešní seed
+  useEffect(() => {
+    if (USERS_BACKEND !== "firebase") return;            // local → zůstává seed
+    return fb.subscribeUsers((us) => {                   // Firestore realtime → pole userů
+      if (us && us.length) { USERS_CACHE = us; setUsers(us); }  // prázdné → drž fallback (seed)
+    });
+  }, []);
+  return users;
+}
+
 function useCampaignStore() {
   // LOKÁLNÍ backend (DATA_BACKEND="local"): chová se přesně jako dřív, žádná změna.
   const [campaigns, setCampaigns] = useState(seed);
@@ -1027,6 +1065,50 @@ function useCampaignStore() {
   //   subscribeCampaigns → onSnapshot(events+podkolekce) → compose() → cb
   //   updateCampaign     → applyWrite(id, fn) (diff, F4)
   return { campaigns, loadCampaigns, subscribeCampaigns, updateCampaign, addCampaign, compose };
+}
+
+
+/* ══ F3: shadow READ parity — porovnává LOKÁLNÍ c vs. c složené z Firestore přes compose().
+   Nemění DATA_BACKEND ani data. Cílem je business parita, ne bajtová shoda Firestore dokumentů. ══ */
+const F3_STRIP = new Set(["updatedAt", "createdAt", "schemaVersion"]);   // technická metadata → ignorovat
+function f3norm(v) {
+  if (Array.isArray(v)) return v.map(f3norm);
+  if (v && typeof v === "object") {
+    // Firestore Timestamp (i po serializaci) → sjednotit, ať nekazí paritu
+    if (typeof v.toDate === "function" || ("seconds" in v && "nanoseconds" in v)) return "<ts>";
+    const out = {};
+    for (const k of Object.keys(v).sort()) {                 // stabilní pořadí klíčů
+      if (F3_STRIP.has(k)) continue;
+      const val = v[k];
+      if (val === undefined) continue;                        // undefined (Firestore ho zahodí) == chybějící
+      out[k] = f3norm(val);
+    }
+    return out;
+  }
+  return v;
+}
+function f3normCampaign(c) {
+  const { parts = [], leads = [], reservations = [], finalReport, ...rest } = c;
+  const byId = (a) => [...a].sort((x, y) => String(x.id).localeCompare(String(y.id)));  // podkolekce = množiny dle id
+  const base = { ...rest, parts: byId(parts), leads: byId(leads), reservations: byId(reservations) };
+  if (finalReport != null) base.finalReport = finalReport;    // null/absent finalReport = stejný význam
+  return f3norm(base);
+}
+function f3Compare(localArr = [], remoteArr = []) {
+  const toMap = (arr) => { const m = {}; for (const c of arr) m[c.id] = f3normCampaign(c); return m; };
+  const L = toMap(localArr), R = toMap(remoteArr);
+  const ids = [...new Set([...Object.keys(L), ...Object.keys(R)])].sort();
+  const diffs = [];
+  for (const id of ids) {
+    if (!(id in L)) { diffs.push({ id, issue: "jen ve Firestore" }); continue; }
+    if (!(id in R)) { diffs.push({ id, issue: "jen lokálně" }); continue; }
+    if (JSON.stringify(L[id]) !== JSON.stringify(R[id])) {
+      const keys = new Set([...Object.keys(L[id]), ...Object.keys(R[id])]);
+      const differingKeys = [...keys].filter(k => JSON.stringify(L[id][k]) !== JSON.stringify(R[id][k]));
+      diffs.push({ id, differingKeys });
+    }
+  }
+  return { ok: diffs.length === 0, localCount: localArr.length, remoteCount: remoteArr.length, diffs };
 }
 
 export default function App() {
@@ -1042,6 +1124,44 @@ export default function App() {
   const campaigns = store.campaigns;
   const [annualBudget, setAnnualBudget] = useState({ total: 500000, periodFrom: "2026-03", periodTo: "2027-03", note: "" });
   const [users, setUsers] = useState(initUsers);
+  const fbUsers = useUsers();                             // F1: uživatelé z Firestore (fallback = seed)
+  useEffect(() => { if (fbUsers && fbUsers.length) setUsers(fbUsers); }, [fbUsers]);
+
+  // ── DOČASNĚ pro F2 seed kampaní — po nahrání do Firestore SMAZAT. ──
+  //    Spusť JEDNOU v konzoli:  await window.f2SeedCampaigns()
+  //    Users už ve Firestore jsou → posílá se prázdné pole users.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.fb = fb;
+    window.f2SeedCampaigns = async () => {
+      const res = await fb.seedImport(campaigns, []);
+      console.log("F2: nahráno kampaní =", campaigns.length, campaigns.map(c => c.id));
+      return res;
+    };
+  }, [campaigns]);
+
+  // ── F3: SHADOW subscribe — čte kampaně z Firestore paralelně, jen loguje (DATA_BACKEND zůstává local). ──
+  useEffect(() => {
+    return fb.subscribeCampaigns((remote) => {
+      console.log("F3 shadow: složeno z Firestore =", remote.length, "akcí →", remote.map(c => c.id));
+      window.__f3remote = remote;               // pro ruční inspekci tvaru c
+    });
+  }, []);
+
+  // ── F3: on-demand parity check. Spusť v konzoli:  await window.f3Parity() ──
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.f3Parity = () => new Promise((resolve) => {
+      const off = fb.subscribeCampaigns((remote) => {
+        off();
+        const r = f3Compare(campaigns, remote);
+        console.log("F3 parity →", r.ok ? "OK ✅" : "ROZDÍL ❌", r);
+        if (!r.ok) console.log("Rozdílové akce:", r.diffs);
+        window.__f3 = { local: campaigns, remote, result: r };
+        resolve(r);
+      });
+    });
+  }, [campaigns]);
   const [showUsers, setShowUsers] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
   const [editCampaign, setEditCampaign] = useState(null);
@@ -2156,6 +2276,7 @@ function CreateWizard({ onClose, onCreate, editCampaign }) {
 
 
 function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }) {
+  const users = useUsers();                              // F1: uživatelé z Firestore
   const [tab,      setTab]      = useState("list");
   const [adding,   setAdding]   = useState(false);
   const [editingCampaign, setEditingCampaign] = useState(false);
@@ -2193,7 +2314,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       setDupErr(`${data[emailId]} už je v akci.`); return false;
     }
     setDupErr("");
-    const adderUser = USERS_SEED.find(u => u.role === role) || null;
+    const adderUser = users.find(u => u.role === role) || null;
     const adderDepts = adderUser?.depts && adderUser.depts.length ? adderUser.depts : [];
     onUpdate((camp) => ({ ...camp, parts: [...camp.parts, { id: uid(), state: "ceka", note: `Přidal: ${role}`, addedBy: { userId: adderUser?.id || null, name: adderUser?.name || role, dept: adderUser?.dept || "", depts: adderDepts, role: adderUser?.role || role }, assignedTo: adderUser?.id || null, flight: null, hcp: "", group: null, eqChoice, crm: {}, customerInfo, data }] }));
     return true;
@@ -2231,6 +2352,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
   const reject   = (pid) => { if (ro) return; return onUpdate((camp) => cleanDriveRes({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, state: "zrusil", note: (p.note ? p.note + " · " : "") + "Zamítnuto schvalovatelem" } : p) }, pid, "zrusil")); };
   const setState = (pid, s) => {
     if (ro) return;
+    if (role === ROLES.SALES && !SALES_SETTABLE_STATES.includes(s)) return;   // v0.29: prodejce nesmí schvalovat/potvrzovat ani obcházet workflow
     if (s === "potvrzen" && isGolf) {
       const p = c.parts.find((x) => x.id === pid);
       if (!p?.hcp) { setHcpModal(pid); return; }
@@ -2243,7 +2365,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
   const setGroup = (pid, gid)  => ro ? undefined : onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, group: gid } : p) }));
   const remove   = (pid) => ro ? undefined : onUpdate((camp) => ({ ...camp, parts: camp.parts.filter((p) => p.id !== pid), reservations: (camp.reservations || []).filter((r) => r.partId !== pid) }));
   const assign   = (pid, uid2) => ro ? undefined : onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, assignedTo: uid2 || null } : p) }));
-  const currentUser = USERS_SEED.find(u => u.role === role) || null;
+  const currentUser = users.find(u => u.role === role) || null;
   const currentUserId = currentUser?.id || null;
 
   if (blocked) {
@@ -2322,11 +2444,11 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 500, fontSize: 13 }}>{p.data[nameId] || "—"}</div>
                 <div style={{ fontSize: 11.5, color: T.textDim }}>{p.data[emailId]}</div>
-                {p.note && <div style={{ fontSize: 11, color: T.textDim }}>{p.note}{(() => { const adder = USERS_SEED.find(u => (p.note||"").includes(u.name)); return adder?.dept ? <span style={{ color: T.brass }}> | {adder.dept}</span> : ""; })()}</div>}
+                {p.note && <div style={{ fontSize: 11, color: T.textDim }}>{p.note}{(() => { const adder = users.find(u => (p.note||"").includes(u.name)); return deptOf(adder) ? <span style={{ color: T.brass }}> | {deptOf(adder)}</span> : ""; })()}</div>}
                 {p.customerInfo?.ico && (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
                     <span style={{ fontSize: 11, color: T.textDim }}>IČO: <b style={{ color: T.cream, fontFamily: "monospace" }}>{p.customerInfo.ico}</b></span>
-                    {(() => { const adder = USERS_SEED.find(u => (p.note||"").includes(u.name)); return adder?.dept ? <span style={{ fontSize: 11, color: T.brass, marginLeft: 6 }}>Zadal: {adder.name} | {adder.dept}</span> : null; })()}
+                    {(() => { const adder = users.find(u => (p.note||"").includes(u.name)); return deptOf(adder) ? <span style={{ fontSize: 11, color: T.brass, marginLeft: 6 }}>Zadal: {adder.name} | {deptOf(adder)}</span> : null; })()}
                   </div>
                 )}
                 {p.customerInfo?.type === "fo" && (
@@ -2340,7 +2462,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
               </div>
               <select value={p.assignedTo || ""} onChange={(e) => assign(p.id, e.target.value)} style={{ ...inputStyle, padding: "6px 8px", fontSize: 11.5, width: 160 }} title="Přiřadit prodejci">
                 <option value="">— přiřadit prodejci —</option>
-                {USERS_SEED.filter(u => u.role === ROLES.SALES && u.active).map(s => <option key={s.id} value={s.id}>{s.name}{s.depts?.length ? ` (${s.depts.join("/")})` : ""}</option>)}
+                {users.filter(u => u.role === ROLES.SALES && u.active).map(s => <option key={s.id} value={s.id}>{s.name}{s.depts?.length ? ` (${s.depts.join("/")})` : ""}</option>)}
               </select>
               <Btn kind="green" icon={Send} small onClick={() => approve(p.id)}>Schválit a pozvat</Btn>
               <Btn kind="danger" small onClick={() => reject(p.id)}>Zamítnout</Btn>
@@ -2392,9 +2514,10 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
    ÚČASTNÍCI
 ════════════════════════════════════════ */
 function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, emailId, phoneId, dupErr, setState, setNote, setGroup, setCrm, remove, canApprove, canDelete, readOnly, onAddOpen, onSendBatch, onResend, inviteMode, assign, currentUserId }) {
+  const users = useUsers();                              // F1: uživatelé z Firestore
   const [expandedCrm, setExpandedCrm] = useState(null);
   const [statusModal, setStatusModal] = useState(false);
-  const sellers = USERS_SEED.filter(u => u.role === ROLES.SALES && u.active);
+  const sellers = users.filter(u => u.role === ROLES.SALES && u.active);
   const canAssign = isManagement(role) && !readOnly;
   // prodejce edituje jen zákazníky, které založil, nebo které mu přiřadili
   const canEditPart = (p) => {
@@ -2433,6 +2556,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
           const crm = p.crm || {};
           const isExpanded = expandedCrm === p.id;
           const hasCrm = crm.category || crm.reason || (crm.purchases?.length > 0);
+          const canEditThis = canEditPart(p);   // v0.29: prodejce edituje CRM jen u svých/přiřazených
           return (
             <React.Fragment key={p.id}>
               {/* KOMPAKTNÍ ŘÁDEK */}
@@ -2452,7 +2576,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                   {partDivisions(p).map(id => (
                     <span key={id} style={{ fontSize: 10, fontWeight: 600, color: T.brass, background: `${T.brass}18`, border: `1px solid ${T.brass}44`, borderRadius: 5, padding: "1px 6px" }}>{id}</span>
                   ))}
-                  {p.assignedTo && (() => { const asg = USERS_SEED.find(u => u.id === p.assignedTo); return asg ? <span style={{ fontSize: 10.5, color: T.info, background: `${T.info}15`, border: `1px solid ${T.info}44`, borderRadius: 5, padding: "1px 6px" }}>👤 {asg.name}</span> : null; })()}
+                  {p.assignedTo && (() => { const asg = users.find(u => u.id === p.assignedTo); return asg ? <span style={{ fontSize: 10.5, color: T.info, background: `${T.info}15`, border: `1px solid ${T.info}44`, borderRadius: 5, padding: "1px 6px" }}>👤 {asg.name}</span> : null; })()}
                 </div>
                 {/* stav + akce — pevná šířka aby bylo vždy zarovnané */}
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
@@ -2463,7 +2587,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                     </select>
                   )}
                   <select value={p.state} onChange={(e) => setState(p.id, e.target.value)} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, width: 148 }} disabled={!canEditPart(p)}>
-                    {STATE_ORDER.filter((s) => !(role === ROLES.SALES && s === "ceka")).map((s) => <option key={s} value={s}>{STATES[s].label}</option>)}
+                    {STATE_ORDER.filter((s) => role !== ROLES.SALES || s === p.state || SALES_SETTABLE_STATES.includes(s)).map((s) => <option key={s} value={s}>{STATES[s].label}</option>)}
                   </select>
                   {/* vždy rezervované místo pro ✉ tlačítko */}
                   <div style={{ width: 32, display: "flex", justifyContent: "center" }}>
@@ -2488,13 +2612,13 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                     <div><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>TELEFON</div><div style={{ fontSize: 12.5, color: T.cream }}>{p.data[phoneId] || "—"}</div></div>
                     {isGolf && <div><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>HCP</div><div style={{ fontSize: 12.5, color: p.hcp ? T.brass : T.textDim, fontWeight: 600 }}>{p.hcp || "—"}</div></div>}
                     <div><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>SKUPINA</div>
-                      {canEdit
+                      {canEditThis
                         ? <select value={p.group || ""} onChange={e => setGroup(p.id, e.target.value || null)} style={{ ...inputStyle, padding: "3px 7px", fontSize: 12 }}><option value="">—</option>{c.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select>
                         : <div style={{ fontSize: 12.5, color: T.cream }}>{c.groups.find(g => g.id === p.group)?.name || "—"}</div>
                       }
                     </div>
                     <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>POZNÁMKA</div>
-                      <input value={p.note} placeholder="poznámka…" onChange={e => setNote(p.id, e.target.value)} style={{ ...inputStyle, padding: "3px 8px", fontSize: 12, width: "100%" }} readOnly={role === ROLES.SALES} />
+                      <input value={p.note} placeholder="poznámka…" onChange={e => setNote(p.id, e.target.value)} style={{ ...inputStyle, padding: "3px 8px", fontSize: 12, width: "100%" }} readOnly={!canEditThis} />
                     </div>
                   </div>
                   <div style={{ background: T.bg, border: `1px solid ${T.info}33`, borderRadius: 10, padding: 14 }}>
@@ -2507,7 +2631,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                       {/* kategorie */}
                       <div>
                         <label style={lbl}>Kategorie zákazníka</label>
-                        {canEdit
+                        {canEditThis
                           ? <select value={crm.category || ""} onChange={(e) => setCrm(p.id, { ...crm, category: e.target.value })} style={inputStyle}>
                               <option value="">— vyberte —</option>
                               {CRM_CATEGORIES.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
@@ -2522,16 +2646,16 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                           {(crm.purchases || []).map((pu, i) => (
                             <span key={i} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: T.cream, background: T.panel, border: `1px solid ${T.line}`, padding: "3px 8px", borderRadius: 7 }}>
                               🚗 {pu.year} {pu.model}
-                              {canEdit && <button onClick={() => setCrm(p.id, { ...crm, purchases: crm.purchases.filter((_, j) => j !== i) })} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger, padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>}
+                              {canEditThis && <button onClick={() => setCrm(p.id, { ...crm, purchases: crm.purchases.filter((_, j) => j !== i) })} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger, padding: 0, fontSize: 12, lineHeight: 1 }}>×</button>}
                             </span>
                           ))}
-                          {canEdit && <AddPurchaseInline crm={crm} onAdd={(pu) => setCrm(p.id, { ...crm, purchases: [...(crm.purchases || []), pu] })} />}
+                          {canEditThis && <AddPurchaseInline crm={crm} onAdd={(pu) => setCrm(p.id, { ...crm, purchases: [...(crm.purchases || []), pu] })} />}
                         </div>
                       </div>
                       {/* důvod pozvání */}
                       <div>
                         <label style={lbl}>Důvod pozvání / popis vztahu</label>
-                        {canEdit
+                        {canEditThis
                           ? <textarea value={crm.reason || ""} onChange={(e) => setCrm(p.id, { ...crm, reason: e.target.value })} rows={3} style={{ ...inputStyle, resize: "vertical", fontSize: 12 }} placeholder="Např. Velkoodběratel, loni koupil GLE a GLS…" />
                           : <div style={{ fontSize: 12.5, color: T.creamDim, lineHeight: 1.7 }}>{crm.reason || "—"}</div>
                         }
@@ -2555,6 +2679,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
 }
 
 function StatusToSellersModal({ c, onClose }) {
+  const users = useUsers();                              // F1: uživatelé z Firestore
   // Přednastav oddělení podle akce; když akce nemá určená, nabídni všechna
   const eventDepts = (c.departments && c.departments.length) ? c.departments : EVENT_DEPTS.map(d => d.id);
   const [selDepts, setSelDepts] = useState(eventDepts);
@@ -2563,10 +2688,10 @@ function StatusToSellersModal({ c, onClose }) {
 
   // prodejci (lite) filtrovaní podle vybraných oddělení; dept u usera je textový (label nebo id)
   const matchesDept = (u) => {
-    const ud = (u.dept || "").toLowerCase();
+    const ud = (deptOf(u) || "").toLowerCase();
     return selDepts.some(id => ud === id.toLowerCase() || ud === eventDeptLabel(id).toLowerCase());
   };
-  const sellers = USERS_SEED.filter(u => u.role === ROLES.SALES && u.active);
+  const sellers = users.filter(u => u.role === ROLES.SALES && u.active);
   const filteredSellers = sellers.filter(u => selDepts.length === 0 ? true : matchesDept(u));
 
   const toggleDept = (id) => setSelDepts(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -2625,7 +2750,7 @@ function StatusToSellersModal({ c, onClose }) {
                 <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", background: on ? `${T.brass}12` : T.bg, border: `1px solid ${on ? T.brass : T.line}`, borderRadius: 8, cursor: "pointer" }}>
                   <input type="checkbox" checked={on} onChange={() => toggleSeller(u.id)} />
                   <span style={{ fontSize: 13, fontWeight: on ? 600 : 400, color: on ? T.cream : T.textDim }}>{u.name}</span>
-                  {u.dept && <span style={{ fontSize: 11, color: T.brass, marginLeft: "auto" }}>{u.dept}</span>}
+                  {deptOf(u) && <span style={{ fontSize: 11, color: T.brass, marginLeft: "auto" }}>{deptOf(u)}</span>}
                 </label>
               );
             })}
@@ -3412,8 +3537,9 @@ function TeamTab({ c, canEdit, onUpdate }) {
 }
 
 function AddTeamMemberModal({ c, onClose, onAdd }) {
+  const users = useUsers();                              // F1: uživatelé z Firestore
   const [type,     setType]     = useState("internal");
-  const [userId,   setUserId]   = useState(USERS_SEED[0]?.id || "");
+  const [userId,   setUserId]   = useState(users[0]?.id || "");
   const [multiSelect, setMultiSelect] = useState(false);
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [extName,  setExtName]  = useState("");
@@ -3424,7 +3550,7 @@ function AddTeamMemberModal({ c, onClose, onAdd }) {
   const [timeTo,   setTimeTo]   = useState("18:00");
   const [note,     setNote]     = useState("");
 
-  const selectedUser = USERS_SEED.find((u) => u.id === userId);
+  const selectedUser = users.find((u) => u.id === userId);
   const name  = type === "internal" ? selectedUser?.name  || "" : extName;
   const email = type === "internal" ? selectedUser?.email || "" : extEmail;
 
@@ -3464,7 +3590,7 @@ function AddTeamMemberModal({ c, onClose, onAdd }) {
           </label>
           {multiSelect ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 200, overflowY: "auto", background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, padding: 10 }}>
-              {USERS_SEED.filter(u => u.active !== false).map(u => (
+              {users.filter(u => u.active !== false).map(u => (
                 <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 13, padding: "4px 6px", borderRadius: 6, background: selectedUsers.includes(u.id) ? `${T.brass}15` : "transparent" }}>
                   <input type="checkbox" checked={selectedUsers.includes(u.id)} onChange={e => setSelectedUsers(prev => e.target.checked ? [...prev, u.id] : prev.filter(x => x !== u.id))} />
                   <span style={{ color: selectedUsers.includes(u.id) ? T.cream : T.textDim }}>{u.name}</span>
@@ -3474,7 +3600,7 @@ function AddTeamMemberModal({ c, onClose, onAdd }) {
             </div>
           ) : (
             <select value={userId} onChange={(e) => setUserId(e.target.value)} style={inputStyle}>
-              {USERS_SEED.filter((u) => u.active !== false).map((u) => (
+              {users.filter((u) => u.active !== false).map((u) => (
                 <option key={u.id} value={u.id}>{u.name} — {u.position}</option>
               ))}
             </select>
@@ -3524,7 +3650,7 @@ function AddTeamMemberModal({ c, onClose, onAdd }) {
         <Btn kind="green" icon={Check} disabled={!ok && !(multiSelect && selectedUsers.length > 0)} onClick={() => {
           if (multiSelect && selectedUsers.length > 0) {
             selectedUsers.forEach(uid2 => {
-              const u = USERS_SEED.find(x => x.id === uid2);
+              const u = users.find(x => x.id === uid2);
               if (u) onAdd({ type: "internal", userId: uid2, name: u.name, email: u.email || "", role, days, timeFrom, timeTo, note });
             });
           } else {
@@ -3721,7 +3847,7 @@ function UsersModal({ users, onClose, onUpdate }) {
               {isEditing ? (
                 <input value={u.position} onChange={(e) => updateUser(u.id, { position: e.target.value })} style={{ ...inputStyle, padding: "4px 7px", fontSize: 11.5 }} />
               ) : (
-                <span style={{ fontSize: 11.5, color: T.textDim }}>{u.position}{u.dept ? <span style={{ color: T.brass, marginLeft: 4, fontSize: 10.5 }}>| {u.dept}</span> : ""}</span>
+                <span style={{ fontSize: 11.5, color: T.textDim }}>{u.position}{deptOf(u) ? <span style={{ color: T.brass, marginLeft: 4, fontSize: 10.5 }}>| {deptOf(u)}</span> : ""}</span>
               )}
               <button onClick={() => toggleActive(u.id)} style={{ background: "none", border: `1px solid ${u.active ? T.greenLite : T.line}`, borderRadius: 6, padding: "3px 8px", cursor: "pointer", fontSize: 10.5, color: u.active ? T.greenLite : T.textDim }}>
                 {u.active ? "aktivní" : "neaktivní"}
@@ -3776,7 +3902,7 @@ function AddUserModal({ users, onClose, onAdd }) {
             list="dept-list"
           />
           <datalist id="dept-list">
-            {[...new Set(users.filter(u => u.dept).map(u => u.dept))].map(d => <option key={d} value={d} />)}
+            {[...new Set(users.filter(u => deptOf(u)).map(u => deptOf(u)))].map(d => <option key={d} value={d} />)}
           </datalist>
         </FRow>
         <FRow label="Divize (zákazník od tohoto prodejce se zařadí do těchto divizí)">
@@ -3891,20 +4017,28 @@ function BusinessRow({ lead, onSave }) {
 }
 
 function LeadsTab({ c, role, onUpdate }) {
+  const users = useUsers();                              // F1: uživatelé z Firestore
   const [open, setOpen] = useState(false);
   const leads = c.leads || [];
   const ro = isReadOnly(c);
   const canEdit = canManageLeads(role, c);
   const canDelete = canDeleteLead(role, c);
   const canAssign = canAssignLead(role, c);
-  const sellers = USERS_SEED.filter(u => u.role === ROLES.SALES);
-  const myId = USERS_SEED.find(u => u.role === role)?.id || null;   // v0.26: aktuální prodejce
+  const sellers = users.filter(u => u.role === ROLES.SALES);
+  const myId = users.find(u => u.role === role)?.id || null;   // v0.26: aktuální prodejce
   const myLeads = role === ROLES.SALES ? leads.filter(l => l.assignedTo === myId) : [];
 
-  const addLead = (lead) => onUpdate((camp) => ({
-    ...camp,
-    leads: [...(camp.leads || []), { id: uid(), at: new Date().toISOString().slice(0,10), addedBy: role, ...lead }],
-  }));
+  const addLead = ({ partId, ...lead }) => onUpdate((camp) => {
+    // v0.29: lead se automaticky přiřadí prodejci, který zákazníka pozval.
+    //        Pole zůstává editovatelné (výjimka: host z ulice, přerozdělení vedoucím).
+    let assignedTo = null;
+    if (!lead.isGuest) {
+      const linked = partId ? (camp.parts || []).find(pp => pp.id === partId) : null;
+      if (linked?.addedBy?.userId) assignedTo = linked.addedBy.userId;   // prodejce, který účastníka pozval
+      else if (role === ROLES.SALES && myId) assignedTo = myId;          // lead přidává prodejce → sobě
+    }
+    return { ...camp, leads: [...(camp.leads || []), { id: uid(), at: new Date().toISOString().slice(0,10), addedBy: role, assignedTo, ...lead }] };
+  });
   const removeLead = (id) => onUpdate((camp) => ({
     ...camp, leads: (camp.leads || []).filter(l => l.id !== id),
   }));
@@ -3917,7 +4051,7 @@ function LeadsTab({ c, role, onUpdate }) {
 
   const [copiedId, setCopiedId] = useState(null);
   const copySummary = (lead) => {
-    const assignedUser = USERS_SEED.find(u => u.id === lead.assignedTo);
+    const assignedUser = users.find(u => u.id === lead.assignedTo);
     navigator.clipboard?.writeText(buildLeadSummary(lead, assignedUser));
     setCopiedId(lead.id);
     setTimeout(() => setCopiedId(id2 => id2 === lead.id ? null : id2), 1500);
@@ -4000,7 +4134,7 @@ function LeadsTab({ c, role, onUpdate }) {
               <span style={{ fontSize: 12, color: T.textDim }}>({group.length})</span>
             </div>
             {group.map(lead => {
-              const assignedUser = USERS_SEED.find(u => u.id === lead.assignedTo);
+              const assignedUser = users.find(u => u.id === lead.assignedTo);
               return (
                 <div key={lead.id} style={{ background: T.panel, border: `1px solid ${lvl.color}44`, borderRadius: 10, padding: "13px 15px", marginBottom: 8, display: "flex", alignItems: "flex-start", gap: 13 }}>
                   <div style={{ width: 38, height: 38, borderRadius: 9, background: lvl.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>{lvl.icon}</div>
@@ -4063,6 +4197,7 @@ function LeadsTab({ c, role, onUpdate }) {
 }
 
 function AddLeadModal({ c, onClose, onAdd, prefillName = "", prefillPhone = "", prefillPartId = null }) {
+  const users = useUsers();                              // F1: uživatelé z Firestore
   const participants = (c.parts || []).filter(p => ["potvrzen","prihlasen"].includes(p.state));
   // pokud přišel konkrétní zákazník (prefillPartId), předvyber ho; jinak když je prefillName, dohledej podle jména
   const initialPart = prefillPartId && participants.some(p => p.id === prefillPartId)
@@ -4139,7 +4274,7 @@ function AddLeadModal({ c, onClose, onAdd, prefillName = "", prefillPhone = "", 
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 9 }}>
         <Btn kind="ghost" onClick={onClose}>Zrušit</Btn>
-        <Btn kind="green" icon={Check} disabled={!ok} onClick={() => onAdd({ name: name.trim(), phone: phone.trim(), model: model.trim(), interest, note: note.trim(), isGuest: selPart === "new" })}>Uložit zájem</Btn>
+        <Btn kind="green" icon={Check} disabled={!ok} onClick={() => onAdd({ name: name.trim(), phone: phone.trim(), model: model.trim(), interest, note: note.trim(), isGuest: selPart === "new", partId: selPart === "new" ? null : selPart })}>Uložit zájem</Btn>
       </div>
     </Modal>
   );
@@ -4147,13 +4282,22 @@ function AddLeadModal({ c, onClose, onAdd, prefillName = "", prefillPhone = "", 
 
 
 function HosteskaDetail({ c, onBack, onUpdate }) {
+  const users = useUsers();                              // F1: uživatelé z Firestore
   const [addingLead, setAddingLead] = useState(false);
   const [selPart, setSelPart] = useState(null);
   const { nameId, phoneId } = c.fieldMeta;
   const leads = c.leads || [];
   const participants = c.parts.filter(p => ["potvrzen","prihlasen"].includes(p.state));
 
-  const addLead = (lead) => onUpdate((camp) => ({ ...camp, leads: [...(camp.leads || []), { id: uid(), at: new Date().toISOString().slice(0,10), addedBy: "hosteska", ...lead }] }));
+  const addLead = ({ partId, ...lead }) => onUpdate((camp) => {
+    // v0.29: auto-přiřazení prodejci, který účastníka pozval (hosteska obchodníka nemusí znát → jinak zůstane prázdné, editovatelné).
+    let assignedTo = null;
+    if (!lead.isGuest && partId) {
+      const linked = (camp.parts || []).find(pp => pp.id === partId);
+      if (linked?.addedBy?.userId) assignedTo = linked.addedBy.userId;
+    }
+    return { ...camp, leads: [...(camp.leads || []), { id: uid(), at: new Date().toISOString().slice(0,10), addedBy: "hosteska", assignedTo, ...lead }] };
+  });
 
   return (
     <div>
@@ -4217,7 +4361,7 @@ function HosteskaDetail({ c, onBack, onUpdate }) {
                   <div style={{ marginTop: 5 }}>
                     <select value={l.assignedTo || ""} onChange={e => onUpdate((camp) => ({ ...camp, leads: (camp.leads||[]).map(x => x.id===l.id ? {...x, assignedTo: e.target.value||null} : x) }))} style={{ ...inputStyle, width: "100%", padding: "3px 7px", fontSize: 11.5 }}>
                       <option value="">— přiřadit prodejci —</option>
-                      {USERS_SEED.filter(u => u.role === ROLES.SALES).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      {users.filter(u => u.role === ROLES.SALES).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -4652,6 +4796,7 @@ function EventStatusBadge({ c, showPhase }) {
 }
 
 function ReportInsights({ c }) {
+  const users = useUsers();                              // F1: uživatelé z Firestore
   // snapshot má přednost — uzavřená akce se nikdy nepřegeneruje jinak
   const leads = c.finalReport?.leads || c.leads || [];
   const cSnap = { ...c, leads };
@@ -4727,7 +4872,7 @@ function ReportInsights({ c }) {
               </tr></thead>
               <tbody>
                 {leads.map((l) => {
-                  const seller = USERS_SEED.find((u) => u.id === l.assignedTo);
+                  const seller = users.find((u) => u.id === l.assignedTo);
                   const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest);
                   const fin = FINANCING.find((f) => f.id === l.financing);
                   return (
@@ -5946,7 +6091,7 @@ function exportInfoSheet(c) {
 function exportLeadSummary(c) {
   const leads = c.finalReport?.leads || c.leads || [];
   const rowsHtml = leads.map((l) => {
-    const seller = USERS_SEED.find((u) => u.id === l.assignedTo);
+    const seller = USERS_CACHE.find((u) => u.id === l.assignedTo);
     const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest);
     const fin = FINANCING.find((x) => x.id === l.financing);
     return `<tr>
