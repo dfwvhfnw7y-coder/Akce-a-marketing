@@ -13,12 +13,24 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.23";
-const APP_BUILD = "2026-07-10 22:05";
+const APP_VERSION = "0.24";
+const APP_BUILD = "2026-07-11 11:04";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.24",
+    date: "11. 7. 2026",
+    title: "Práva mazání, uzavření akce dotažené",
+    items: [
+      "🔒 Prodejce (LITE) už nemůže smazat účastníka ani lead. Mazání je nově výhradně pro admina a schvalovatele.",
+      "🔐 Uzavřená akce je opravdu jen ke čtení: schvalování, mazání, přiřazování, přidávání a odesílání pozvánek jsou vypnuté napříč záložkami.",
+      "✅ Při uzavření se nevyřízené žádosti o schválení označí jako neúčast — na uzavřené akci už nikdo „nečeká na schválení“.",
+      "👥 Tým akce po uzavření neukazuje „čeká na potvrzení“.",
+      "📊 Report nově obsahuje kompletní obchodní souhrn: u každého leadu nabídka, kontakt, financování a přiřazený obchodník.",
+    ],
+  },
   {
     version: "0.23",
     date: "10. 7. 2026",
@@ -1971,6 +1983,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
   const estatus    = eventStatus(c);
   const ro         = isReadOnly(c);                                  // v0.23: po uzavření jen ke čtení
   const canEdit    = (role === "admin" || role === "approver") && !ro;
+  const canDelete  = (role === "admin" || role === "approver") && !ro; // v0.24: prodejce nikdy nemaže; po uzavření nemaže nikdo
   const isMgmt     = role === "admin" || role === "approver";
   const apIds      = (c.approvers && c.approvers.length) ? c.approvers : [c.approver].filter(Boolean);
   const apNames    = apIds.map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ");
@@ -2079,7 +2092,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
         </div>
       )}
       {/* panel schválení */}
-      {canApprove && waitCount > 0 && (() => {
+      {canApprove && !ro && waitCount > 0 && (() => {
         const waitParts = c.parts.filter((p) => p.state === "ceka");
         const depts = [...new Set(waitParts.map(p => p.addedBy?.dept || "Nezadáno"))];
         const filtered = approvalFilter === "vse" ? waitParts : waitParts.filter(p => {
@@ -2160,7 +2173,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
         )}
       </div>
 
-      {tab === "list"   && <ParticipantList c={c} role={role} crossMap={crossMap} full={full} isGolf={isGolf} canEdit={canEdit} nameId={nameId} emailId={emailId} phoneId={phoneId} dupErr={dupErr} setState={setState} setNote={setNote} setGroup={setGroup} setCrm={setCrm} remove={remove} canApprove={canApprove} onAddOpen={() => setAdding(true)} onSendBatch={sendBatchInvites} onResend={resendInvite} inviteMode={c.inviteMode} assign={assign} currentUserId={currentUserId} />}
+      {tab === "list"   && <ParticipantList c={c} role={role} crossMap={crossMap} full={full} isGolf={isGolf} canEdit={canEdit} nameId={nameId} emailId={emailId} phoneId={phoneId} dupErr={dupErr} setState={setState} setNote={setNote} setGroup={setGroup} setCrm={setCrm} remove={remove} canApprove={canApprove && !ro} canDelete={canDelete} readOnly={ro} onAddOpen={() => setAdding(true)} onSendBatch={sendBatchInvites} onResend={resendInvite} inviteMode={c.inviteMode} assign={assign} currentUserId={currentUserId} />}
       {isMgmt && tab === "groups" && <GroupsTab c={c} canEdit={canEdit} nameId={nameId} onUpdate={onUpdate} setGroup={setGroup} />}
       {isMgmt && tab === "needs"  && <NeedsTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
       {isMgmt && tab === "team"   && <TeamTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
@@ -2175,7 +2188,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       {editingCampaign && <CreateWizard editCampaign={c} onClose={() => setEditingCampaign(false)} onCreate={(updated) => { onUpdate(() => updated); setEditingCampaign(false); }} />}
       {adding   && <AddModal fields={c.fields} fieldMeta={c.fieldMeta} full={full} crossMap={crossMap} campEquipment={c.equipment || []} onClose={() => setAdding(false)} onAdd={(data, eq, info) => { if (addPart(data, eq, info)) setAdding(false); }} />}
       {hcpModal && <HcpModal onClose={() => setHcpModal(null)} onSave={(hcp) => setHcp(hcpModal, hcp)} />}
-      {closeModal && <CloseEventModal c={c} onClose={() => setCloseModal(false)} onConfirm={() => { onUpdate((camp) => ({ ...camp, status: "closed", closedAt: new Date().toISOString(), closedBy: role, finalReport: buildFinalReport(camp) })); setCloseModal(false); }} />}
+      {closeModal && <CloseEventModal c={c} onClose={() => setCloseModal(false)} onConfirm={() => { onUpdate((camp) => { const parts = camp.parts.map((p) => ["ceka", "schvaleno"].includes(p.state) ? { ...p, state: "zrusil", note: (p.note ? p.note + " · " : "") + "Neúčast — akce uzavřena" } : p); const closed = { ...camp, parts, status: "closed", closedAt: new Date().toISOString(), closedBy: role }; return { ...closed, finalReport: buildFinalReport(closed) }; }); setCloseModal(false); }} />}
     </div>
   );
 }
@@ -2183,13 +2196,14 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
 /* ════════════════════════════════════════
    ÚČASTNÍCI
 ════════════════════════════════════════ */
-function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, emailId, phoneId, dupErr, setState, setNote, setGroup, setCrm, remove, canApprove, onAddOpen, onSendBatch, onResend, inviteMode, assign, currentUserId }) {
+function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, emailId, phoneId, dupErr, setState, setNote, setGroup, setCrm, remove, canApprove, canDelete, readOnly, onAddOpen, onSendBatch, onResend, inviteMode, assign, currentUserId }) {
   const [expandedCrm, setExpandedCrm] = useState(null);
   const [statusModal, setStatusModal] = useState(false);
   const sellers = USERS_SEED.filter(u => u.role === "lite" && u.active);
-  const canAssign = role === "admin" || role === "approver";
+  const canAssign = (role === "admin" || role === "approver") && !readOnly;
   // prodejce edituje jen zákazníky, které založil, nebo které mu přiřadili
   const canEditPart = (p) => {
+    if (readOnly) return false;
     if (role !== "lite") return canEdit;
     return p.addedBy?.userId === currentUserId || p.assignedTo === currentUserId;
   };
@@ -2199,7 +2213,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
   return (
     <>
       <div style={{ display: "flex", gap: 9, marginBottom: 14, flexWrap: "wrap" }}>
-        <Btn kind={full ? "ghost" : "green"} icon={UserPlus} onClick={onAddOpen}>Přidat zákazníka</Btn>
+        {!readOnly && <Btn kind={full ? "ghost" : "green"} icon={UserPlus} onClick={onAddOpen}>Přidat zákazníka</Btn>}
         {canEdit && <Btn kind="ghost" icon={Download} onClick={() => exportCsv(c)}>Export CSV</Btn>}
         {canEdit && <Btn kind="ghost" icon={Download} onClick={() => exportExcel(c)}>Export Excel</Btn>}
         {canApprove && <Btn kind="ghost" icon={Bell} onClick={() => setStatusModal(true)}><Users size={14} /> Stav prodejcům</Btn>}
@@ -2266,7 +2280,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                   </div>
                   {/* vždy rezervované místo pro 🗑 tlačítko */}
                   <div style={{ width: 24, display: "flex", justifyContent: "center" }}>
-                    {canEditPart(p) && <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger, padding: "2px" }}><Trash2 size={14} /></button>}
+                    {canDelete && <button onClick={() => remove(p.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger, padding: "2px" }}><Trash2 size={14} /></button>}
                   </div>
                 </div>
               </div>
@@ -3035,6 +3049,7 @@ function NeedsTab({ c, canEdit, onUpdate }) {
 function TeamTab({ c, canEdit, onUpdate }) {
   const [adding, setAdding] = useState(false);
   const team = c.team || { members: [], teamsUrl: "", multiDay: false };
+  const ro = isReadOnly(c);
 
   const addMember = (m) => onUpdate((camp) => {
     const existing = (camp.team?.members || []).some(x => x.userId && x.userId === m.userId);
@@ -3076,10 +3091,12 @@ function TeamTab({ c, canEdit, onUpdate }) {
           <div style={{ fontSize: 20, fontWeight: 700, color: T.greenLite }}>{confirmed}</div>
           <div style={{ fontSize: 11, color: T.textDim }}>potvrzeno</div>
         </div>
-        <div style={{ background: "rgba(200,160,68,.12)", border: "1px solid rgba(200,160,68,.35)", borderRadius: 9, padding: "9px 16px", textAlign: "center", minWidth: 90 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: T.brass }}>{pending}</div>
-          <div style={{ fontSize: 11, color: T.textDim }}>čeká</div>
-        </div>
+        {!ro && (
+          <div style={{ background: "rgba(200,160,68,.12)", border: "1px solid rgba(200,160,68,.35)", borderRadius: 9, padding: "9px 16px", textAlign: "center", minWidth: 90 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: T.brass }}>{pending}</div>
+            <div style={{ fontSize: 11, color: T.textDim }}>čeká</div>
+          </div>
+        )}
         <div style={{ flex: 1 }} />
         {/* Teams tlačítko */}
         <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -3154,13 +3171,15 @@ function TeamTab({ c, canEdit, onUpdate }) {
                     }
                     {/* stav */}
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 11.5, color: st.color, background: st.bg, border: `1px solid ${st.color}44`, padding: "3px 9px", borderRadius: 8, whiteSpace: "nowrap" }}>{st.label}</span>
+                      {ro && m.status === "pending"
+                        ? <span style={{ fontSize: 11.5, color: T.textDim }}>—</span>
+                        : <span style={{ fontSize: 11.5, color: st.color, background: st.bg, border: `1px solid ${st.color}44`, padding: "3px 9px", borderRadius: 8, whiteSpace: "nowrap" }}>{st.label}</span>}
                     </div>
                     {/* akce */}
                     <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-                      <button onClick={() => sendCalInvite(m)} title="Odeslat pozvánku do kalendáře" style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: 7, cursor: "pointer", padding: "4px 8px", color: T.info, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+                      {!ro && <button onClick={() => sendCalInvite(m)} title="Odeslat pozvánku do kalendáře" style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: 7, cursor: "pointer", padding: "4px 8px", color: T.info, fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
                         <CalendarCheck size={13} /> pozvat
-                      </button>
+                      </button>}
                       {canEdit && (
                         <>
                           <select value={m.status} onChange={(e) => updMember(m.id, { status: e.target.value })} style={{ ...inputStyle, width: "auto", padding: "3px 6px", fontSize: 11, flex: "none" }}>
@@ -3679,8 +3698,10 @@ function BusinessRow({ lead, onSave }) {
 function LeadsTab({ c, role, onUpdate }) {
   const [open, setOpen] = useState(false);
   const leads = c.leads || [];
-  const canEdit = ["admin","approver","hosteska","lite"].includes(role);
-  const canAssign = role === "admin" || role === "approver" || role === "hosteska" || role === "lite";
+  const ro = isReadOnly(c);
+  const canEdit = !ro && ["admin","approver","hosteska","lite"].includes(role);
+  const canDelete = !ro && (role === "admin" || role === "approver"); // v0.24: prodejce/hosteska lead nemaže
+  const canAssign = !ro && (role === "admin" || role === "approver" || role === "hosteska" || role === "lite");
   const sellers = USERS_SEED.filter(u => u.role === "lite");
 
   const addLead = (lead) => onUpdate((camp) => ({
@@ -3790,7 +3811,7 @@ function LeadsTab({ c, role, onUpdate }) {
                       {copiedId === lead.id ? <Check size={14} /> : <ClipboardList size={14} />}
                       {copiedId === lead.id && <span style={{ fontSize: 9 }}>zkopírováno</span>}
                     </button>
-                    {canEdit && (
+                    {canDelete && (
                       <button onClick={() => removeLead(lead.id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.danger }}>
                         <Trash2 size={14} />
                       </button>
@@ -4250,7 +4271,7 @@ const leadQuality = (c) => {
 const eventMetrics = (c) => {
   const parts = c.parts || [];
   const inState = (arr) => parts.filter((p) => arr.includes(p.state)).length;
-  const invited   = parts.filter((p) => !["ceka", "schvaleno"].includes(p.state)).length; // pozvánka odeslána a dál
+  const invited   = parts.filter((p) => ["prihlasen", "potvrzen", "nedostavil"].includes(p.state)).length; // pozvánka odeslána a dál
   const confirmed = inState(["potvrzen"]);
   const noShow    = inState(["nedostavil"]);
   const attended  = confirmed; // "nedostavil se" má vlastní stav → potvrzeno už je čistý počet přítomných
@@ -4360,6 +4381,37 @@ function ReportInsights({ c }) {
           </div>
         </div>
       )}
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 8 }}>Obchodní souhrn ({(c.leads || []).length} leadů)</div>
+        {(c.leads || []).length === 0 ? (
+          <div style={{ fontSize: 12, color: T.textDim }}>Žádné leady.</div>
+        ) : (
+          <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ background: T.panel2 }}>
+                {["Zákazník", "Model / zájem", "Nabídka", "Kontakt", "Financování", "Obchodník"].map((h) => <th key={h} style={{ textAlign: "left", padding: "7px 10px", color: T.textDim, fontWeight: 500, fontSize: 10.5 }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {(c.leads || []).map((l) => {
+                  const seller = USERS_SEED.find((u) => u.id === l.assignedTo);
+                  const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest);
+                  const fin = FINANCING.find((f) => f.id === l.financing);
+                  return (
+                    <tr key={l.id} style={{ borderTop: `1px solid ${T.line}` }}>
+                      <td style={{ padding: "7px 10px", color: T.cream }}>{l.name || "—"}{l.phone ? <span style={{ color: T.textDim }}> · {l.phone}</span> : null}</td>
+                      <td style={{ padding: "7px 10px", color: T.creamDim }}>{l.model || "—"}{lvl ? ` · ${lvl.label}` : ""}</td>
+                      <td style={{ padding: "7px 10px", color: l.wantsOffer === true ? T.greenLite : T.textDim }}>{l.wantsOffer === true ? "ANO" : l.wantsOffer === false ? "ne" : "—"}</td>
+                      <td style={{ padding: "7px 10px", color: l.wantsContact === true ? T.greenLite : T.textDim }}>{l.wantsContact === true ? "ANO" : "—"}</td>
+                      <td style={{ padding: "7px 10px", color: T.creamDim }}>{fin ? fin.label : "—"}</td>
+                      <td style={{ padding: "7px 10px", color: seller ? T.info : T.warn }}>{seller ? seller.name : "nepřiřazeno"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 8 }}>📌 Poznatky z akce</div>
@@ -4379,7 +4431,9 @@ function CloseEventModal({ c, onClose, onConfirm }) {
   const m = eventMetrics(c);
   const surveyDone = !!(c.survey?.responses?.length) || !!c.surveyNA;
   const summariesDone = (c.leads || []).length === 0 || (c.leads || []).every((l) => l.wantsOffer != null || l.wantsContact != null || (l.note && l.note.trim()));
+  const pending = (c.parts || []).filter((p) => ["ceka", "schvaleno"].includes(p.state)).length;
   const checks = [
+    { ok: pending === 0, label: "Žádné nevyřízené žádosti o schválení", detail: pending ? `${pending} nevyřízeno → označí se jako neúčast` : "hotovo" },
     { ok: q.noSeller.length === 0, label: "Všechny leady předány obchodníkovi", detail: q.noSeller.length ? `${q.noSeller.length} bez obchodníka` : "hotovo" },
     { ok: q.noPhone.length === 0,  label: "Kontaktní údaje ověřeny (telefon)",  detail: q.noPhone.length ? `${q.noPhone.length} bez telefonu` : "hotovo" },
     { ok: summariesDone,           label: "Obchodní souhrny zkontrolovány",     detail: summariesDone ? "hotovo" : "část leadů bez souhrnu" },
