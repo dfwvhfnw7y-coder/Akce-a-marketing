@@ -1164,6 +1164,7 @@ export default function App() {
   }, [campaigns]);
   const [showUsers, setShowUsers] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const [editCampaign, setEditCampaign] = useState(null);
   const [role, setRole]   = useState("admin");
   const [open, setOpen]   = useState(null);
@@ -1210,7 +1211,7 @@ export default function App() {
           <div>
             <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: .3, lineHeight: 1.1 }}>AKCE <span style={{ color: T.brass }}>{"S. & W."}</span> <span style={{ fontWeight: 500 }}>Automobily</span> <span style={{ fontSize: 11, color: T.textDim, fontWeight: 400 }}>s.r.o.</span></div>
             <div style={{ fontSize: 11.5, fontStyle: "italic", color: T.textDim, opacity: .65, marginTop: 1, letterSpacing: .2 }}>Pomáhá proměnit zájem v příležitost</div>
-            <div style={{ fontSize: 11.5, color: T.textDim, marginTop: 8, paddingTop: 6, borderTop: `1px solid ${T.line}` }}>Dashboard · rozpočet · report · schválení <span onClick={() => setShowChangelog(true)} title="Zobrazit novinky ve verzi" style={{ color: T.brass, opacity: .75, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}>· v{APP_VERSION} · {APP_BUILD} 🎉</span></div>
+            <div style={{ fontSize: 11.5, color: T.textDim, marginTop: 8, paddingTop: 6, borderTop: `1px solid ${T.line}` }}>Dashboard · rozpočet · report · schválení <span onClick={() => setShowChangelog(true)} title="Novinky ve verzi" style={{ color: T.brass, opacity: .75, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2 }}>· v{APP_VERSION} · {APP_BUILD} 🎉</span> <span onClick={() => setShowAbout(true)} title="O aplikaci" style={{ color: T.brass, opacity: .75, fontSize: 11, cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 2, marginLeft: 6 }}>· O aplikaci</span></div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1246,6 +1247,7 @@ export default function App() {
       </main>
       {showUsers && <UsersModal users={users} onClose={() => setShowUsers(false)} onUpdate={setUsers} />}
       {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
       {editCampaign && <CreateWizard editCampaign={editCampaign} onClose={() => setEditCampaign(null)} onCreate={(updated) => { update(updated.id, () => updated); setEditCampaign(null); }} />}
     </div>
   );
@@ -1700,6 +1702,56 @@ function AnnualModal({ onClose, budget, onChange, campaigns, totalExpected, tota
           </div>
         );
       })}
+    </Modal>
+  );
+}
+
+function AboutModal({ onClose }) {
+  return (
+    <Modal title="O aplikaci" onClose={onClose} wide>
+      {/* ── HERO ── */}
+      <div style={{ background: `linear-gradient(160deg, ${T.panel2}, ${T.bg})`, border: `1px solid ${T.brass}44`, borderRadius: 12, padding: "22px 20px 18px", marginBottom: 20, textAlign: "center" }}>
+        <div style={{ fontSize: 28, marginBottom: 6 }}>🚗🏌️‍♂️📋</div>
+        <div style={{ fontSize: 18, fontWeight: 800, color: T.cream, letterSpacing: 0.3 }}>{"AKCE S. & W. Automobily"}</div>
+        <div style={{ fontSize: 13.5, color: T.brass, fontStyle: "italic", marginTop: 4 }}>{"Pomáhá proměnit zájem v příležitost."}</div>
+        <div style={{ display: "inline-block", fontSize: 11, fontWeight: 700, color: T.bg, background: T.brass, padding: "3px 11px", borderRadius: 20, marginTop: 12 }}>v{APP_VERSION} · build {APP_BUILD}</div>
+      </div>
+
+      {/* ── ÚVOD ── */}
+      <div style={{ fontSize: 13, color: T.creamDim, lineHeight: 1.75, marginBottom: 16 }}>
+        <p style={{ margin: "0 0 11px" }}>{"Tato aplikace vznikla jako interní nástroj pro plánování, organizaci a vyhodnocování akcí společnosti S. & W. Automobily s.r.o."}</p>
+        <p style={{ margin: "0 0 11px" }}>{"Jejím cílem není nahradit CRM ani řídit obchodní procesy. Jejím úkolem je pomoci zachytit zájem zákazníků během akcí, předat důležité informace obchodníkům a vytvořit přehledné vyhodnocení celé akce."}</p>
+        <p style={{ margin: 0 }}>{"Aplikace byla navržena na základě reálných zkušeností z prostředí automobilového retailu a postupně se rozvíjela podle praktických potřeb marketingu, obchodních týmů a vedení společnosti. Její další vývoj bude i nadále vycházet především z každodenních zkušeností a zpětné vazby uživatelů."}</p>
+      </div>
+
+      {/* ── PODĚKOVÁNÍ ── */}
+      <div style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.cream, marginBottom: 7 }}>🙏 Poděkování</div>
+        <div style={{ fontSize: 12.5, color: T.creamDim, lineHeight: 1.7 }}>
+          <p style={{ margin: "0 0 8px" }}>{"Děkujeme všem, kteří se podíleli na návrhu, testování a rozvoji této aplikace."}</p>
+          <p style={{ margin: 0 }}>{"Významnou roli při návrhu aplikace sehrála také spolupráce s asistenty umělé inteligence Claude a Microsoft Copilot, kteří pomáhali s analýzou procesů, návrhem architektury, identifikací rizik, dokumentací a technickými revizemi."}</p>
+        </div>
+      </div>
+
+      {/* ── FILOZOFIE ── */}
+      <div style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.cream, marginBottom: 8 }}>🧭 Filozofie projektu</div>
+        <div style={{ fontSize: 12.5, color: T.creamDim, lineHeight: 1.7, marginBottom: 10 }}>{"Při návrhu každé funkce jsme si opakovaně kladli jedinou otázku:"}</div>
+        <div style={{ borderLeft: `3px solid ${T.brass}`, paddingLeft: 12, fontSize: 14, fontStyle: "italic", color: T.brass, marginBottom: 10 }}>{"„Pomůže tato funkce proměnit zájem v příležitost?“"}</div>
+        <div style={{ fontSize: 12.5, color: T.creamDim, lineHeight: 1.7, marginBottom: 12 }}>{"Pokud byla odpověď ano, funkce zůstala. Pokud ne, do této aplikace nepatří."}</div>
+        <div style={{ fontSize: 12, color: T.textDim, marginBottom: 7 }}>{"Aplikace záměrně není:"}</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {["CRM systém", "marketing automation platforma", "DMS systém", "nástroj pro řízení obchodních případů"].map((x) => (
+            <span key={x} style={{ fontSize: 11.5, color: T.textDim, background: T.panel, border: `1px solid ${T.line}`, borderRadius: 20, padding: "3px 11px" }}>{"✕ "}{x}</span>
+          ))}
+        </div>
+        <div style={{ fontSize: 12.5, color: T.creamDim, lineHeight: 1.7, marginTop: 12 }}>{"Jejím cílem je být jednoduchým, přehledným a praktickým pomocníkem pro práci s akcemi a zákazníky."}</div>
+      </div>
+
+      <div style={{ textAlign: "center", fontSize: 11, color: T.textDim, marginBottom: 6, lineHeight: 1.7 }}>{"Vytvořeno v S. & W. Automobily s.r.o. s podporou umělé inteligence."}</div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+        <Btn kind="primary" icon={Check} onClick={onClose}>Zavřít</Btn>
+      </div>
     </Modal>
   );
 }

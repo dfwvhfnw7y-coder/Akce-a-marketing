@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "start": "cd akce-sw && npm start",
+    "build": "cd akce-sw && npm run build"
+  },
   "dependencies": {
     "firebase": "^12.16.0"
   }
