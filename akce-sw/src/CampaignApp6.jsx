@@ -13,12 +13,22 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.25";
-const APP_BUILD = "2026-07-11 11:38";
+const APP_VERSION = "0.26";
+const APP_BUILD = "2026-07-11 11:50";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.26",
+    date: "2026-07-11",
+    items: [
+      "Audit: zrušeno pole „Chce další jízdu\" — zájem o jízdu je vidět z rezervací; priorita je nabídka / financování / kontakt.",
+      "Prodejce (lite) vidí nahoře „Vaše leady z akce\" s jasnou výzvou: přepsat do CRM a kontaktovat zájemce o nabídku/financování.",
+      "Host z ulice sjednocen: jeden pojem, jedna logika, jedna metrika (účastníci z ulice i noví kontakti-leady dohromady).",
+      "„Bez poznámky\" zůstává jen jako informace, ne jako kontrolní varování.",
+    ],
+  },
   {
     version: "0.25",
     date: "2026-07-11",
@@ -3734,7 +3744,6 @@ function BusinessRow({ lead, onSave }) {
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <OfferToggle label="Chce nabídku" val={lead.wantsOffer == null ? null : lead.wantsOffer} onSet={(v) => onSave({ wantsOffer: v })} />
         <OfferToggle label="Další kontakt" val={lead.wantsContact == null ? null : lead.wantsContact} onSet={(v) => onSave({ wantsContact: v })} />
-        <OfferToggle label="Další jízda" val={lead.wantsDrive == null ? null : lead.wantsDrive} onSet={(v) => onSave({ wantsDrive: v })} />
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 11, color: T.textDim }}>Financování</span>
           <select value={lead.financing || ""} onChange={(e) => onSave({ financing: e.target.value || null })} style={{ ...inputStyle, width: "auto", padding: "3px 8px", fontSize: 11.5, flex: "none" }}>
@@ -3759,6 +3768,8 @@ function LeadsTab({ c, role, onUpdate }) {
   const canDelete = !ro && (role === "admin" || role === "approver"); // v0.24: prodejce/hosteska lead nemaže
   const canAssign = !ro && (role === "admin" || role === "approver" || role === "hosteska" || role === "lite");
   const sellers = USERS_SEED.filter(u => u.role === "lite");
+  const myId = USERS_SEED.find(u => u.role === role)?.id || null;   // v0.26: aktuální prodejce
+  const myLeads = role === "lite" ? leads.filter(l => l.assignedTo === myId) : [];
 
   const addLead = (lead) => onUpdate((camp) => ({
     ...camp,
@@ -3789,6 +3800,34 @@ function LeadsTab({ c, role, onUpdate }) {
 
   return (
     <div>
+      {/* v0.26: prodejce vidí nejdřív SVOJE leady + co má udělat */}
+      {role === "lite" && (
+        <div style={{ background: `${T.info}12`, border: `1px solid ${T.info}55`, borderRadius: 10, padding: "12px 15px", marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.info, marginBottom: 4 }}>Vaše leady z akce ({myLeads.length})</div>
+          <div style={{ fontSize: 12, color: T.creamDim, marginBottom: myLeads.length ? 10 : 0 }}>Přepište leady do CRM a kontaktujte zákazníky se zájmem o nabídku nebo financování.</div>
+          {myLeads.map(lead => {
+            const lvl = INTEREST_LEVELS.find(x => x.id === lead.interest);
+            return (
+              <div key={lead.id} style={{ display: "flex", alignItems: "center", gap: 10, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, padding: "8px 11px", marginBottom: 6 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.cream }}>{lead.name}{lead.phone ? <span style={{ color: T.textDim }}> · {lead.phone}</span> : null}</div>
+                  <div style={{ fontSize: 12, color: T.brass }}>🚗 {lead.model}{lvl ? ` · ${lvl.label}` : ""}</div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
+                    {lead.wantsOffer === true && <span style={{ fontSize: 10.5, color: T.greenLite, background: `${T.greenLite}18`, border: `1px solid ${T.greenLite}44`, borderRadius: 6, padding: "1px 7px" }}>chce nabídku</span>}
+                    {lead.financing && <span style={{ fontSize: 10.5, color: T.brass, background: `${T.brass}18`, border: `1px solid ${T.brass}44`, borderRadius: 6, padding: "1px 7px" }}>financování</span>}
+                    {lead.wantsContact === true && <span style={{ fontSize: 10.5, color: T.info, background: `${T.info}18`, border: `1px solid ${T.info}44`, borderRadius: 6, padding: "1px 7px" }}>chce kontakt</span>}
+                  </div>
+                </div>
+                <button onClick={() => copySummary(lead)} title="Zkopírovat shrnutí pro CRM" style={{ background: "none", border: `1px solid ${T.line}`, borderRadius: 7, cursor: "pointer", color: copiedId === lead.id ? T.info : T.textDim, padding: "5px 9px", display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, fontFamily: "inherit" }}>
+                  {copiedId === lead.id ? <Check size={13} /> : <ClipboardList size={13} />}{copiedId === lead.id ? "zkopírováno" : "CRM"}
+                </button>
+              </div>
+            );
+          })}
+          {myLeads.length === 0 && <div style={{ fontSize: 12, color: T.textDim }}>Zatím vám nejsou přiřazeny žádné leady.</div>}
+        </div>
+      )}
+
       {/* rizikový pruh */}
       {riskyLeads.length > 0 && (
         <div style={{ background: `${T.danger}14`, border: `1px solid ${T.danger}55`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
@@ -4315,7 +4354,7 @@ const REPORT_THRESHOLDS = { rsvpLow: 0.6, noShowHigh: 0.15, offerStrong: 0.5, no
 const leadQuality = (c) => {
   const leads = c.leads || [];
   const has = (v) => !!(v && String(v).trim());
-  const noInterest = (l) => !has(l.model) && !l.interest && l.wantsOffer !== true && l.wantsContact !== true && l.wantsDrive !== true && !l.financing;
+  const noInterest = (l) => !has(l.model) && !l.interest && l.wantsOffer !== true && l.wantsContact !== true && !l.financing;
   return {
     total: leads.length,
     assigned:   leads.filter((l) => !!l.assignedTo),
@@ -4332,9 +4371,18 @@ const leadsNeedingAction = (c) => {
   const offer     = leads.filter((l) => l.wantsOffer === true);
   const financing = leads.filter((l) => !!l.financing);
   const contact   = leads.filter((l) => l.wantsContact === true);
-  const drive     = leads.filter((l) => l.wantsDrive === true);
-  const union = new Set([...offer, ...financing, ...contact, ...drive].map((l) => l.id));
-  return { offer, financing, contact, drive, total: union.size };
+  const union = new Set([...offer, ...financing, ...contact].map((l) => l.id));
+  return { offer, financing, contact, total: union.size };
+};
+
+// v0.26: host z ulice = jeden pojem, jedna logika, jedna metrika.
+// Sloučí neočekávané účastníky (fromStreet) i nové kontakty-leady (isGuest) do jednoho seznamu.
+const unexpectedGuests = (c) => {
+  const nameId = c.fieldMeta?.nameId;
+  const out = [];
+  (c.parts || []).forEach((p) => { if (p.fromStreet) out.push(`${p.data?.[nameId] || "—"} (účastník z ulice)`); });
+  (c.leads || []).forEach((l) => { if (l.isGuest) out.push(`${l.name || "—"}${l.model ? " · " + l.model : ""} (nový kontakt)`); });
+  return out;
 };
 
 const eventMetrics = (c) => {
@@ -4349,10 +4397,9 @@ const eventMetrics = (c) => {
   const offers    = leads.filter((l) => l.wantsOffer === true).length;
   const financing = leads.filter((l) => !!l.financing).length;
   const contacts  = leads.filter((l) => l.wantsContact === true).length;
-  const street    = parts.filter((p) => p.fromStreet).length;
+  const street    = unexpectedGuests(c).length;   // v0.26: jednotná metrika hostů z ulice
   const emId = c.fieldMeta?.emailId;
   const attendeesNoEmail = parts.filter((p) => ["potvrzen", "prihlasen"].includes(p.state) && !((p.data?.[emId] || "").trim())).length;
-  const drive     = leads.filter((l) => l.wantsDrive === true).length;
   const ic = {};
   leads.forEach((l) => { const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest); const k = lvl ? lvl.label : (l.interest || l.model || "—"); ic[k] = (ic[k] || 0) + 1; });
   const topInterests = Object.entries(ic).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -4365,7 +4412,7 @@ const eventMetrics = (c) => {
   const fc = {};
   leads.forEach((l) => { if (l.financing) { const lab = (FINANCING.find((x) => x.id === l.financing) || {}).label || l.financing; fc[lab] = (fc[lab] || 0) + 1; } });
   const topFinancing = Object.entries(fc).sort((a, b) => b[1] - a[1])[0] || null;
-  return { invited, confirmed, noShow, attended, drives, leadCount: leads.length, offers, financing, contacts, drive, street, attendeesNoEmail, topInterests, modelCounts, topModel, topFinancing };
+  return { invited, confirmed, noShow, attended, drives, leadCount: leads.length, offers, financing, contacts, street, attendeesNoEmail, topInterests, modelCounts, topModel, topFinancing };
 };
 
 // generované sekce reportu — pravidla z prahů (offline). Vrací pole vět.
@@ -4464,8 +4511,7 @@ function ReportInsights({ c }) {
   const attend = (c.parts || []).filter((p) => ["potvrzen", "prihlasen"].includes(p.state));
   const noShow = (c.parts || []).filter((p) => p.state === "nedostavil");
   const noContact = attend.filter((p) => !has(p.data?.[phoneId]) && !has(p.data?.[emailId]));
-  const streetGuests = (c.parts || []).filter((p) => p.fromStreet);
-  const guestLeads = leads.filter((l) => l.isGuest);
+  const unexpected = unexpectedGuests(cSnap);
 
   const cell = (n, l, col) => (
     <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 9, padding: "10px 12px" }}>
@@ -4509,7 +4555,6 @@ function ReportInsights({ c }) {
           {chip(na.offer.length,     "chce nabídku",   T.greenLite)}
           {chip(na.financing.length, "financování",    T.brass)}
           {chip(na.contact.length,   "chce kontakt",   T.info)}
-          {chip(na.drive.length,     "chce další jízdu", T.purple)}
         </div>
       </div>
 
@@ -4528,7 +4573,7 @@ function ReportInsights({ c }) {
           <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead><tr style={{ background: T.panel2 }}>
-                {["Zákazník", "Model / zájem", "Nabídka", "Kontakt", "Další jízda", "Financování", "Obchodník"].map((h) => <th key={h} style={{ textAlign: "left", padding: "7px 10px", color: T.textDim, fontWeight: 500, fontSize: 10.5 }}>{h}</th>)}
+                {["Zákazník", "Model / zájem", "Nabídka", "Kontakt", "Financování", "Obchodník"].map((h) => <th key={h} style={{ textAlign: "left", padding: "7px 10px", color: T.textDim, fontWeight: 500, fontSize: 10.5 }}>{h}</th>)}
               </tr></thead>
               <tbody>
                 {leads.map((l) => {
@@ -4541,7 +4586,6 @@ function ReportInsights({ c }) {
                       <td style={{ padding: "7px 10px", color: T.creamDim }}>{l.model || "—"}{lvl ? ` · ${lvl.label}` : ""}</td>
                       <td style={{ padding: "7px 10px", color: l.wantsOffer === true ? T.greenLite : T.textDim }}>{l.wantsOffer === true ? "ANO" : l.wantsOffer === false ? "ne" : "—"}</td>
                       <td style={{ padding: "7px 10px", color: l.wantsContact === true ? T.greenLite : T.textDim }}>{l.wantsContact === true ? "ANO" : "—"}</td>
-                      <td style={{ padding: "7px 10px", color: l.wantsDrive === true ? T.greenLite : T.textDim }}>{l.wantsDrive === true ? "ANO" : "—"}</td>
                       <td style={{ padding: "7px 10px", color: T.creamDim }}>{fin ? fin.label : "—"}</td>
                       <td style={{ padding: "7px 10px", color: seller ? T.info : T.warn }}>{seller ? seller.name : "nepřiřazeno"}</td>
                     </tr>
@@ -4588,8 +4632,7 @@ function ReportInsights({ c }) {
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.info, marginBottom: 8 }}>✨ Neočekávané příležitosti</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {oppList("Hosté z ulice / neočekávaní účastníci", streetGuests.map((p) => p.data?.[nameId] || "—"), T.info, "🚶")}
-            {oppList("Nové kontakty (host z venku)", guestLeads.map((l) => `${l.name || "—"}${l.model ? " · " + l.model : ""}`), T.info, "🆕")}
+            {oppList("Hosté z ulice a noví kontakti", unexpected, T.info, "🚶")}
           </div>
         </div>
       </div>
@@ -4648,7 +4691,7 @@ function CloseEventModal({ c, onClose, onConfirm }) {
       <div style={{ background: `${T.brass}12`, border: `1px solid ${T.brass}55`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: T.brass, marginBottom: 8 }}>🎯 Leady vyžadující akci ({na.total})</div>
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
-          {[["chce nabídku", na.offer.length, T.greenLite], ["financování", na.financing.length, T.brass], ["chce kontakt", na.contact.length, T.info], ["chce další jízdu", na.drive.length, T.purple]].map(([l, n, col]) => (
+          {[["chce nabídku", na.offer.length, T.greenLite], ["financování", na.financing.length, T.brass], ["chce kontakt", na.contact.length, T.info]].map(([l, n, col]) => (
             <div key={l} style={{ textAlign: "center" }}>
               <div style={{ fontSize: 22, fontWeight: 700, color: col }}>{n}</div>
               <div style={{ fontSize: 11, color: T.textDim }}>{l}</div>
@@ -5758,7 +5801,6 @@ function exportLeadSummary(c) {
       <td>${l.wantsOffer === true ? "ANO" : l.wantsOffer === false ? "ne" : "—"}</td>
       <td>${fin ? fin.label : "—"}</td>
       <td>${l.wantsContact === true ? "ANO" : "—"}</td>
-      <td>${l.wantsDrive === true ? "ANO" : "—"}</td>
       <td>${seller ? seller.name : "NEPŘIŘAZENO"}</td>
     </tr>`;
   }).join("");
@@ -5778,7 +5820,7 @@ function exportLeadSummary(c) {
 </style></head><body>
 <div class="header"><h1>Obchodní souhrn — ${c.name}</h1><div class="sub">${c.place || ""} · ${c.date ? new Date(c.date).toLocaleDateString("cs-CZ") : ""} · ${leads.length} leadů</div></div>
 <div class="body">
-  <table><thead><tr><th>Zákazník</th><th>Zájem</th><th>Nabídka</th><th>Financování</th><th>Další kontakt</th><th>Další jízda</th><th>Obchodník</th></tr></thead>
+  <table><thead><tr><th>Zákazník</th><th>Zájem</th><th>Nabídka</th><th>Financování</th><th>Další kontakt</th><th>Obchodník</th></tr></thead>
   <tbody>${rowsHtml || '<tr><td colspan="7">Žádné leady.</td></tr>'}</tbody></table>
   <div class="footer">S&W automobily · přehled pro přepis do CRM · ${new Date().toLocaleDateString("cs-CZ")}</div>
 </div></body></html>`);
