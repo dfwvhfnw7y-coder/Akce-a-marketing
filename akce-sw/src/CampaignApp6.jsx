@@ -1,7 +1,7 @@
 /* eslint-disable no-unused-vars */
 import React, { useState, useMemo } from "react";
 import {
-  Plus, Trash2, Flag, ArrowLeft, AlertTriangle, ShieldCheck, EyeOff, UserPlus, X,
+  Plus, Trash2, Flag, ArrowLeft, AlertTriangle, ShieldCheck, EyeOff, Eye, UserPlus, X,
   TrendingUp, Layers, Lock, Type, AlignLeft, CalendarDays, AtSign, Phone, Hash, List,
   Check, Settings, Download, PieChart as PieIcon, ListOrdered, Clock, GripVertical,
   Send, Bell, UserCheck, HelpCircle, Users, Wallet, BarChart3, FolderOpen, Mail, Printer,
@@ -13,12 +13,24 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.26";
-const APP_BUILD = "2026-07-11 11:50";
+const APP_VERSION = "0.27";
+const APP_BUILD = "2026-07-11 12:21";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.27",
+    date: "2026-07-11",
+    items: [
+      "Technický dluh před Firebase (bez nových funkcí): centralizovaný role model (ROLES) + predikáty oprávnění (isManagement, canEditEvent, canDeleteLead, canCloseEvent, canSeeReports…).",
+      "Datové modely zafixovány jako jeden zdroj pravdy (MODELS).",
+      "Snapshot uzavření nese builtWith (verze algoritmu) — uzavřená akce se nikdy nepřepočítá.",
+      "Uzavření akce vytaženo do čisté logiky closeEvent(role); UI volá jen onUpdate(closeEvent(role)).",
+      "Informační list vytažen z komponenty do exportInfoSheet(); exporty jsou mimo React.",
+      "Role Viewer (Náhled) — jen ke čtení.",
+    ],
+  },
   {
     version: "0.26",
     date: "2026-07-11",
@@ -314,9 +326,14 @@ const DEPARTMENTS = [
 const ROLES_META = [
   { id: "admin",    label: "Admin",          desc: "Plný přístup, zakládání akcí, správa uživatelů" },
   { id: "approver", label: "Schvalovatel",   desc: "Schvalování zákazníků, odesílání pozvánek" },
-  { id: "lite",     label: "LITE (prodejce)",desc: "Přidávání zákazníků, sledování obsazenosti" },
-  { id: "hosteska", label: "Hosteska",       desc: "Zadávání zájmu o vůz na akci" },
+  { id: "sales",    label: "Prodejce",       desc: "Přidávání zákazníků, sledování obsazenosti, vlastní leady" },
+  { id: "hostess",  label: "Hosteska",       desc: "Zadávání zájmu o vůz na akci" },
+  { id: "viewer",   label: "Náhled",         desc: "Pouze prohlížení — žádné úpravy" },
 ];
+
+/* ── ROLE MODEL (v0.27) — jeden zdroj pravdy pro role napříč aplikací ── */
+const ROLES = { ADMIN: "admin", APPROVER: "approver", SALES: "sales", HOSTESS: "hostess", VIEWER: "viewer" };
+const ROLE_LABELS = { admin: "Admin", approver: "Schvalovatel", sales: "Prodejce", hostess: "Hosteska", viewer: "Náhled" };
 
 const USERS_SEED = [
   { id: "u0", name: "Stanislav Admin",  email: "admin@sw-automobily.cz",      phone: "+420 602 100 000", role: "admin",    position: "Správce systému",            dept: "Management",              active: true,  approverId: null     },
@@ -324,11 +341,11 @@ const USERS_SEED = [
   { id: "u2", name: "Tereza Machová",  email: "t.machova@sw-automobily.cz", phone: "+420 602 100 002", role: "approver", position: "Marketing manager",  active: true,  approverId: "tereza" },
   { id: "u3", name: "Matej Bugár",     email: "m.bugar@sw-automobily.cz",   phone: "+420 602 100 003", role: "approver", position: "Vedoucí prodeje nákladních vozidel", active: true,  approverId: "matej"  },
   { id: "u4", name: "Pavel Balog",     email: "p.balog@sw-automobily.cz",   phone: "+420 602 100 004", role: "approver", position: "Vedoucí prodeje osobních a užitkových vozů", active: true,  approverId: "pavel"  },
-  { id: "u5", name: "Martin Dvořák",   email: "m.dvorak@sw-automobily.cz",  phone: "+420 602 100 005", role: "lite",     position: "Obchodní zástupce",  dept: "OA (osobní vozy)",        depts: ["OA", "TRAPO"], active: true,  approverId: null     },
-  { id: "u6", name: "Jana Procházková",email: "j.prochazkova@sw-automobily.cz",phone:"+420 602 100 006",role:"lite",     position: "Obchodní zástupce",  dept: "Servis",                  depts: ["Servis"], active: true,  approverId: null     },
-  { id: "u8", name: "Petr Kučera",     email: "p.kucera@sw-automobily.cz",  phone: "+420 602 100 008", role: "lite",     position: "Obchodní zástupce LKW", dept: "LKW (nákladní)",        depts: ["LKW"], active: true,  approverId: null     },
-  { id: "u9", name: "Ondřej Novotný",  email: "o.novotny@sw-automobily.cz", phone: "+420 602 100 009", role: "lite",     position: "Obchodní zástupce TRAPO", dept: "TRAPO",                depts: ["TRAPO"], active: true,  approverId: null     },
-  { id: "u7", name: "Lucie Hosteska",  email: "l.hosteska@sw-automobily.cz",phone: "+420 602 100 007", role: "hosteska", position: "Hosteska / asistentka",active: true, approverId: null    },
+  { id: "u5", name: "Martin Dvořák",   email: "m.dvorak@sw-automobily.cz",  phone: "+420 602 100 005", role: "sales",     position: "Obchodní zástupce",  dept: "OA (osobní vozy)",        depts: ["OA", "TRAPO"], active: true,  approverId: null     },
+  { id: "u6", name: "Jana Procházková",email: "j.prochazkova@sw-automobily.cz",phone:"+420 602 100 006",role:"sales",     position: "Obchodní zástupce",  dept: "Servis",                  depts: ["Servis"], active: true,  approverId: null     },
+  { id: "u8", name: "Petr Kučera",     email: "p.kucera@sw-automobily.cz",  phone: "+420 602 100 008", role: "sales",     position: "Obchodní zástupce LKW", dept: "LKW (nákladní)",        depts: ["LKW"], active: true,  approverId: null     },
+  { id: "u9", name: "Ondřej Novotný",  email: "o.novotny@sw-automobily.cz", phone: "+420 602 100 009", role: "sales",     position: "Obchodní zástupce TRAPO", dept: "TRAPO",                depts: ["TRAPO"], active: true,  approverId: null     },
+  { id: "u7", name: "Lucie Hosteska",  email: "l.hosteska@sw-automobily.cz",phone: "+420 602 100 007", role: "hostess", position: "Hosteska / asistentka",active: true, approverId: null    },
 ];
 const initUsers = () => USERS_SEED;
 
@@ -435,6 +452,17 @@ const eventStatus = (c) => {
   return hasApproved ? "approved" : "draft";
 };
 const isReadOnly = (c) => ["closed", "archived"].includes(eventStatus(c));
+
+/* ── OPRÁVNĚNÍ (v0.27) — veškerá role-rozhodnutí jdou přes tyto predikáty, žádné role==="..." v UI ── */
+const isManagement    = (role) => role === ROLES.ADMIN || role === ROLES.APPROVER;
+const isAdmin         = (role) => role === ROLES.ADMIN;
+const canEditEvent    = (role, c) => isManagement(role) && !isReadOnly(c);
+const canDeleteLead   = (role, c) => isManagement(role) && !isReadOnly(c);
+const canManageLeads  = (role, c) => !isReadOnly(c) && role !== ROLES.VIEWER;   // přidat / upravit lead
+const canAssignLead   = (role, c) => !isReadOnly(c) && role !== ROLES.VIEWER;   // přiřadit obchodníka
+const canCloseEvent   = (role, c) => isAdmin(role) && eventStatus(c) === "wrapup";
+const canArchiveEvent = (role, c) => isAdmin(role) && eventStatus(c) === "closed";
+const canSeeReports   = (role) => isManagement(role) || role === ROLES.VIEWER;
 // informativní fáze (jen odznak, nic se nepřepíná ručně)
 const eventPhase = (c) => {
   const st = eventStatus(c);
@@ -545,6 +573,49 @@ const baseFields = () => [
 ];
 
 /* ── seed ── */
+/* ══════════════════════════════════════════════════════════════
+   DATOVÉ MODELY — jeden zdroj pravdy (v0.27)
+   P = povinné · O = odvozené (nikdy neukládat) · S = součást snapshotu
+   Nejde o validaci, jde o závaznou dokumentaci tvaru dat před Firebase.
+   ══════════════════════════════════════════════════════════════ */
+const MODELS = {
+  Event: {
+    required: ["id", "name", "date", "place", "activityType", "capacity", "approvers", "parts", "leads", "status"],
+    derived:  ["eventStatus", "eventPhase", "used"],          // počítá se z date + dat, neukládat
+    snapshot: ["finalReport"],                                  // viz ReportSnapshot
+    optional: ["departments", "reminders", "inviteMode", "reservations", "budget", "equipment", "team", "survey", "closedAt", "closedBy"],
+    note: "status ∈ {draft, closed, archived} je 'sticky' (ukládá se); ostatní stavy se odvozují.",
+  },
+  Participant: {
+    required: ["id", "data", "state", "addedBy"],
+    optional: ["assignedTo", "fromStreet", "flight", "hcp", "group", "eqChoice", "crm", "customerInfo"],
+    note: "state ∈ {ceka, schvaleno, prihlasen, potvrzen, nedostavil, zrusil, nemoc, dovolena}. fromStreet = host z ulice.",
+  },
+  Lead: {
+    required: ["id", "at", "addedBy", "name", "model", "interest"],
+    optional: ["phone", "assignedTo", "wantsOffer", "wantsContact", "financing", "note", "isGuest"],
+    note: "interest ∈ {velky, zjistit, informace}. assignedTo prázdné = lead bez vlastníka (nejvyšší priorita). isGuest = host z ulice.",
+  },
+  Reservation: {
+    required: ["id", "carId", "slotIndex"],
+    optional: ["partId", "blocked", "note"],
+    note: "vázané na Participant přes partId; jen u testovacích jízd.",
+  },
+  ReportSnapshot: {   // finalReport — CELÉ je S (neměnné po uzavření)
+    required: ["at", "builtWith", "metrics", "insights", "recommendations", "leads", "needingAction", "archiveMeta"],
+    note: "builtWith = verze algoritmu. leads = zmrazená kopie. Nikdy se nepřepočítává.",
+  },
+  ArchiveMeta: {
+    required: ["year", "type", "leadCount", "attendees", "drives"],
+    optional: ["topModel", "modelCounts", "topInsight", "topRecommendation"],
+    note: "datově připraveno na budoucí trendy (modelCounts). Trendy zatím neimplementovat.",
+  },
+  Role: {
+    values: ["admin", "approver", "sales", "hostess", "viewer"],
+    note: "jediný zdroj = konstanta ROLES; rozhodování jen přes predikáty (isManagement, canEditEvent, …).",
+  },
+};
+
 const seed = () => {
   const f1 = baseFields();
   const hcpId = uid();
@@ -576,12 +647,12 @@ const seed = () => {
       { id: "e2", presetId: "test_car", label: "Testovací auto", rentPrice: 0,   custom: false },
     ],
     parts: [
-      mk("Jan Novák",     "jan.novak@email.cz", "+420 601 234 567", "potvrzen", "VIP",  "12,4", "g1", { e1: true }, { category: "Velkoodběratel", reason: "Za poslední rok odebral GLE 450 a GLS 400. Dlouhodobý partner od 2018.", purchases: [{ year: 2024, model: "GLE 450" }, { year: 2024, model: "GLS 400" }, { year: 2022, model: "S 500" }] }, { name: "Martin Dvořák", dept: "Prodej OA", role: "lite" }),
-      mk("Eva Dvořáková", "eva.d@firma.cz",      "+420 777 888 999", "potvrzen", "",    "18,2", "g1", { e2: true }, { category: "Obchodní partner", reason: "Jednatelka, firma odebírá fleet 8 vozů ročně. Zájem o elektrifikaci.", purchases: [{ year: 2023, model: "EQS 450" }, { year: 2023, model: "EQB 300" }] }, { name: "Jana Procházková", dept: "Servis", role: "lite" }),
+      mk("Jan Novák",     "jan.novak@email.cz", "+420 601 234 567", "potvrzen", "VIP",  "12,4", "g1", { e1: true }, { category: "Velkoodběratel", reason: "Za poslední rok odebral GLE 450 a GLS 400. Dlouhodobý partner od 2018.", purchases: [{ year: 2024, model: "GLE 450" }, { year: 2024, model: "GLS 400" }, { year: 2022, model: "S 500" }] }, { name: "Martin Dvořák", dept: "Prodej OA", role: "sales" }),
+      mk("Eva Dvořáková", "eva.d@firma.cz",      "+420 777 888 999", "potvrzen", "",    "18,2", "g1", { e2: true }, { category: "Obchodní partner", reason: "Jednatelka, firma odebírá fleet 8 vozů ročně. Zájem o elektrifikaci.", purchases: [{ year: 2023, model: "EQS 450" }, { year: 2023, model: "EQB 300" }] }, { name: "Jana Procházková", dept: "Servis", role: "sales" }),
       mk("Petr Svoboda",  "p.svoboda@mail.com",  "+420 602 111 222", "potvrzen", "",    "24,0", "g1", { e1: true }),
-      mk("Karel Veselý",  "karel@golf.cz",       "+420 605 333 111", "prihlasen","",    "",     "g2", {}, { category: "Velkoodběratel", reason: "Ředitel výrobní firmy, pravidelný zákazník od 2019. Osobní vůz každé 2 roky, zájem o fleet pro firmu.", purchases: [{ year: 2024, model: "C 300" }, { year: 2023, model: "GLC 220d" }, { year: 2023, model: "A 200" }] }, { name: "Martin Dvořák", dept: "Prodej OA", role: "lite" }),
-      mk("Lucie Malá",    "lucie.mala@firma.cz", "+420 720 444 222", "prihlasen","",    "",     "g2", {}, { category: "Společník", reason: "Společnice v advokátní kanceláři. První pozvání — navázání vztahu.", purchases: [] }, { name: "Jana Procházková", dept: "Servis", role: "lite" }),
-      mk("Tomáš Horák",   "t.horak@email.cz",    "+420 608 555 333", "potvrzen", "",    "8,7",  "g2", { e2: true }, { category: "Dodavatel", reason: "Ředitel logistické firmy. Dodavatel náhradních dílů. Roční obrat spolupráce 2,4M.", purchases: [{ year: 2024, model: "Sprinter 319" }, { year: 2024, model: "Vito 116" }] }, { name: "Martin Dvořák", dept: "Prodej OA", role: "lite" }),
+      mk("Karel Veselý",  "karel@golf.cz",       "+420 605 333 111", "prihlasen","",    "",     "g2", {}, { category: "Velkoodběratel", reason: "Ředitel výrobní firmy, pravidelný zákazník od 2019. Osobní vůz každé 2 roky, zájem o fleet pro firmu.", purchases: [{ year: 2024, model: "C 300" }, { year: 2023, model: "GLC 220d" }, { year: 2023, model: "A 200" }] }, { name: "Martin Dvořák", dept: "Prodej OA", role: "sales" }),
+      mk("Lucie Malá",    "lucie.mala@firma.cz", "+420 720 444 222", "prihlasen","",    "",     "g2", {}, { category: "Společník", reason: "Společnice v advokátní kanceláři. První pozvání — navázání vztahu.", purchases: [] }, { name: "Jana Procházková", dept: "Servis", role: "sales" }),
+      mk("Tomáš Horák",   "t.horak@email.cz",    "+420 608 555 333", "potvrzen", "",    "8,7",  "g2", { e2: true }, { category: "Dodavatel", reason: "Ředitel logistické firmy. Dodavatel náhradních dílů. Roční obrat spolupráce 2,4M.", purchases: [{ year: 2024, model: "Sprinter 319" }, { year: 2024, model: "Vito 116" }] }, { name: "Martin Dvořák", dept: "Prodej OA", role: "sales" }),
       mk("Ivana Králová", "ivana.k@email.cz",    "+420 606 777 888", "ceka",     "Přidal: Novotný"),
       mk("Martin Beneš",  "m.benes@firma.cz",    "+420 603 222 444", "zrusil",   "Nemoc"),
     ],
@@ -935,8 +1006,8 @@ export default function App() {
 
   const update  = (id, fn) => setCampaigns((cs) => cs.map((c) => c.id === id ? fn(c) : c));
   const current = campaigns.find((c) => c.id === open);
-  const liteBlocked = role === "lite" && current && current.owner !== "me";
-  const hosteskaView = role === "hosteska";
+  const liteBlocked = role === ROLES.SALES && current && current.owner !== "me";
+  const hosteskaView = role === ROLES.HOSTESS;
   const totalWaiting = campaigns.reduce((s, c) => s + c.parts.filter((p) => p.state === "ceka").length, 0);
   const totalExpected = campaigns.reduce((s, c) => s + budgetTotals(c.budget?.items).expGross, 0);
   const totalReal     = campaigns.reduce((s, c) => s + budgetTotals(c.budget?.items).realGross, 0);
@@ -965,12 +1036,12 @@ export default function App() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {totalWaiting > 0 && (role === "admin" || role === "approver") && (
+          {totalWaiting > 0 && isManagement(role) && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, background: `${T.purple}22`, border: `1px solid ${T.purple}55`, borderRadius: 8, padding: "6px 12px", fontSize: 12.5, color: T.purple }}>
               <Bell size={14} />{totalWaiting} čeká na schválení
             </div>
           )}
-          {role === "admin" && <Btn kind="ghost" icon={Users} small onClick={() => setShowUsers(true)}>👤 Uživatelé</Btn>}
+          {isAdmin(role) && <Btn kind="ghost" icon={Users} small onClick={() => setShowUsers(true)}>👤 Uživatelé</Btn>}
           <RoleSwitch role={role} setRole={setRole} />
         </div>
       </header>
@@ -1008,8 +1079,9 @@ function RoleSwitch({ role, setRole }) {
       {[
         { k: "admin",    t: "Admin",          i: ShieldCheck },
         { k: "approver", t: "Schvalovatel",   i: UserCheck   },
-        { k: "lite",     t: "LITE (prodejce)", i: Lock        },
-        { k: "hosteska", t: "Hosteska",        i: Zap         },
+        { k: "sales",    t: "Prodejce",       i: Lock        },
+        { k: "hostess",  t: "Hosteska",        i: Zap         },
+        { k: "viewer",   t: "Náhled",          i: Eye         },
       ].map((o) => (
         <button key={o.k} onClick={() => setRole(o.k)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, background: role === o.k ? T.brass : "transparent", color: role === o.k ? T.bg : T.textDim, fontWeight: 500 }}>
           <o.i size={13} />{o.t}
@@ -1048,7 +1120,7 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
   // grafy přesunuty do Reportu
 
   /* LITE pohled */
-  if (role === "hosteska") {
+  if (role === ROLES.HOSTESS) {
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
@@ -1074,7 +1146,7 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
     );
   }
 
-  if (role === "lite") {
+  if (role === ROLES.SALES) {
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}><Flag size={17} color={T.brass} /><h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>Stav akcí</h2></div>
@@ -1102,7 +1174,7 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
         <div style={{ display: "flex", gap: 8 }}>
           <Btn kind="ghost" icon={FolderOpen} onClick={() => setShowArchive((v) => !v)}>{showArchive ? "Skrýt archiv" : "Archiv"}</Btn>
           <Btn kind="ghost" icon={Wallet} onClick={() => setShowAnnual(true)}>Roční rozpočet</Btn>
-          {role === "admin" && <Btn kind="primary" icon={Plus} onClick={() => setCreating(true)}>Nová akce</Btn>}
+          {isAdmin(role) && <Btn kind="primary" icon={Plus} onClick={() => setCreating(true)}>Nová akce</Btn>}
         </div>
       </div>
 
@@ -1229,7 +1301,7 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
                 )}
               </div>
               {wc > 0 && <div style={{ marginTop: 6, fontSize: 11, color: T.purple, display: "flex", alignItems: "center", gap: 4 }}><HelpCircle size={11} />{wc} čeká na schválení</div>}
-              {role === "admin" && (
+              {isAdmin(role) && (
                 <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }} onClick={(e) => e.stopPropagation()}>
                   <Btn kind="ghost" icon={Edit2} small onClick={() => onEdit(c.id)}>Upravit</Btn>
                 </div>
@@ -2038,12 +2110,12 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
   const isGolf     = c.activityType === "golf";
   const { nameId, emailId, phoneId, hcpId } = c.fieldMeta;
   const waitCount  = c.parts.filter((p) => p.state === "ceka").length;
-  const canApprove = role === "admin" || role === "approver";
+  const canApprove = isManagement(role);
   const estatus    = eventStatus(c);
   const ro         = isReadOnly(c);                                  // v0.23: po uzavření jen ke čtení
-  const canEdit    = (role === "admin" || role === "approver") && !ro;
-  const canDelete  = (role === "admin" || role === "approver") && !ro; // v0.24: prodejce nikdy nemaže; po uzavření nemaže nikdo
-  const isMgmt     = role === "admin" || role === "approver";
+  const canEdit    = canEditEvent(role, c);
+  const canDelete  = canEditEvent(role, c); // mgmt & ne read-only
+  const isMgmt     = isManagement(role);
   const apIds      = (c.approvers && c.approvers.length) ? c.approvers : [c.approver].filter(Boolean);
   const apNames    = apIds.map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ");
 
@@ -2136,9 +2208,9 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
             <Btn kind="ghost" icon={ArrowLeft} onClick={onBack} small>Zpět</Btn>
-            {(role === "admin" && !ro) && <Btn kind="ghost" icon={Edit2} small onClick={() => setEditingCampaign(true)}>Upravit akci</Btn>}
-            {(role === "admin" && estatus === "wrapup") && <Btn kind="green" icon={Check} small onClick={() => setCloseModal(true)}>Uzavřít akci</Btn>}
-            {(role === "admin" && estatus === "closed") && <Btn kind="ghost" icon={FolderOpen} small onClick={() => onUpdate((camp) => ({ ...camp, status: "archived" }))}>Do archivu</Btn>}
+            {(isAdmin(role) && !ro) && <Btn kind="ghost" icon={Edit2} small onClick={() => setEditingCampaign(true)}>Upravit akci</Btn>}
+            {canCloseEvent(role, c) && <Btn kind="green" icon={Check} small onClick={() => setCloseModal(true)}>Uzavřít akci</Btn>}
+            {canArchiveEvent(role, c) && <Btn kind="ghost" icon={FolderOpen} small onClick={() => onUpdate((camp) => ({ ...camp, status: "archived" }))}>Do archivu</Btn>}
             <EventStatusBadge c={c} showPhase />
             <a href={"https://calendar.google.com/calendar/render?action=TEMPLATE&text=" + encodeURIComponent(c.name) + "&dates=" + (c.date||"").replace(/-/g,"") + "T080000Z/" + (c.date||"").replace(/-/g,"") + "T180000Z&location=" + encodeURIComponent(c.place||"")} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", background: `${T.brass}15`, border: `1px solid ${T.brass}55`, borderRadius: 8, color: T.brass, fontSize: 12, textDecoration: "none", fontWeight: 500 }}>📅 Přidat do kalendáře</a>
           </div>
@@ -2210,7 +2282,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
               </div>
               <select value={p.assignedTo || ""} onChange={(e) => assign(p.id, e.target.value)} style={{ ...inputStyle, padding: "6px 8px", fontSize: 11.5, width: 160 }} title="Přiřadit prodejci">
                 <option value="">— přiřadit prodejci —</option>
-                {USERS_SEED.filter(u => u.role === "lite" && u.active).map(s => <option key={s.id} value={s.id}>{s.name}{s.depts?.length ? ` (${s.depts.join("/")})` : ""}</option>)}
+                {USERS_SEED.filter(u => u.role === ROLES.SALES && u.active).map(s => <option key={s.id} value={s.id}>{s.name}{s.depts?.length ? ` (${s.depts.join("/")})` : ""}</option>)}
               </select>
               <Btn kind="green" icon={Send} small onClick={() => approve(p.id)}>Schválit a pozvat</Btn>
               <Btn kind="danger" small onClick={() => reject(p.id)}>Zamítnout</Btn>
@@ -2229,7 +2301,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
         {isMgmt && <DTab active={tab === "invite"} onClick={() => setTab("invite")} icon={MailIcon}>Pozvánka</DTab>}
         {isMgmt && <DTab active={tab === "survey"} onClick={() => setTab("survey")} icon={ClipboardList}>Dotazník</DTab>}
         <DTab active={tab === "leads"} onClick={() => setTab("leads")} icon={TrendingUp} badge={(c.leads||[]).length}>Obchodní souhrn</DTab>
-        {isMgmt && <DTab active={tab === "report"} onClick={() => setTab("report")} icon={BarChart3}>Report</DTab>}
+        {canSeeReports(role) && <DTab active={tab === "report"} onClick={() => setTab("report")} icon={BarChart3}>Report</DTab>}
         {isMgmt && ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasStartList && (
           <DTab active={tab === "start"} onClick={() => setTab("start")} icon={Flag}>Startovní listina</DTab>
         )}
@@ -2246,14 +2318,14 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       {isMgmt && tab === "invite" && <InviteTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
       {isMgmt && tab === "survey" && <SurveyTab c={c} canEdit={canEdit} onUpdate={onUpdate} />}
       {tab === "leads"  && <LeadsTab c={c} role={role} onUpdate={onUpdate} />}
-      {isMgmt && tab === "report" && <ReportTab c={c} />}
+      {canSeeReports(role) && tab === "report" && <ReportTab c={c} />}
       {isMgmt && tab === "start"  && <StartList c={c} role={role} onUpdate={onUpdate} />}
       {tab === "drive" && ACTIVITY_TYPES.find((t) => t.id === c.activityType)?.hasReservation && <TestDriveGrid c={c} role={role} onUpdate={onUpdate} />}
 
       {editingCampaign && <CreateWizard editCampaign={c} onClose={() => setEditingCampaign(false)} onCreate={(updated) => { onUpdate(() => updated); setEditingCampaign(false); }} />}
       {adding   && <AddModal fields={c.fields} fieldMeta={c.fieldMeta} full={full} crossMap={crossMap} campEquipment={c.equipment || []} onClose={() => setAdding(false)} onAdd={(data, eq, info) => { if (addPart(data, eq, info)) setAdding(false); }} />}
       {hcpModal && <HcpModal onClose={() => setHcpModal(null)} onSave={(hcp) => setHcp(hcpModal, hcp)} />}
-      {closeModal && <CloseEventModal c={c} onClose={() => setCloseModal(false)} onConfirm={() => { onUpdate((camp) => { const parts = camp.parts.map((p) => ["ceka", "schvaleno"].includes(p.state) ? { ...p, state: "zrusil", note: (p.note ? p.note + " · " : "") + "Neúčast — akce uzavřena" } : p); const closed = { ...camp, parts, status: "closed", closedAt: new Date().toISOString(), closedBy: role }; return { ...closed, finalReport: buildFinalReport(closed) }; }); setCloseModal(false); }} />}
+      {closeModal && <CloseEventModal c={c} onClose={() => setCloseModal(false)} onConfirm={() => { onUpdate(closeEvent(role)); setCloseModal(false); }} />}
     </div>
   );
 }
@@ -2264,12 +2336,12 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
 function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, emailId, phoneId, dupErr, setState, setNote, setGroup, setCrm, remove, canApprove, canDelete, readOnly, onAddOpen, onSendBatch, onResend, inviteMode, assign, currentUserId }) {
   const [expandedCrm, setExpandedCrm] = useState(null);
   const [statusModal, setStatusModal] = useState(false);
-  const sellers = USERS_SEED.filter(u => u.role === "lite" && u.active);
-  const canAssign = (role === "admin" || role === "approver") && !readOnly;
+  const sellers = USERS_SEED.filter(u => u.role === ROLES.SALES && u.active);
+  const canAssign = isManagement(role) && !readOnly;
   // prodejce edituje jen zákazníky, které založil, nebo které mu přiřadili
   const canEditPart = (p) => {
     if (readOnly) return false;
-    if (role !== "lite") return canEdit;
+    if (role !== ROLES.SALES) return canEdit;
     return p.addedBy?.userId === currentUserId || p.assignedTo === currentUserId;
   };
 
@@ -2333,7 +2405,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                     </select>
                   )}
                   <select value={p.state} onChange={(e) => setState(p.id, e.target.value)} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, width: 148 }} disabled={!canEditPart(p)}>
-                    {STATE_ORDER.filter((s) => !(role === "lite" && s === "ceka")).map((s) => <option key={s} value={s}>{STATES[s].label}</option>)}
+                    {STATE_ORDER.filter((s) => !(role === ROLES.SALES && s === "ceka")).map((s) => <option key={s} value={s}>{STATES[s].label}</option>)}
                   </select>
                   {/* vždy rezervované místo pro ✉ tlačítko */}
                   <div style={{ width: 32, display: "flex", justifyContent: "center" }}>
@@ -2364,7 +2436,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                       }
                     </div>
                     <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>POZNÁMKA</div>
-                      <input value={p.note} placeholder="poznámka…" onChange={e => setNote(p.id, e.target.value)} style={{ ...inputStyle, padding: "3px 8px", fontSize: 12, width: "100%" }} readOnly={role === "lite"} />
+                      <input value={p.note} placeholder="poznámka…" onChange={e => setNote(p.id, e.target.value)} style={{ ...inputStyle, padding: "3px 8px", fontSize: 12, width: "100%" }} readOnly={role === ROLES.SALES} />
                     </div>
                   </div>
                   <div style={{ background: T.bg, border: `1px solid ${T.info}33`, borderRadius: 10, padding: 14 }}>
@@ -2436,7 +2508,7 @@ function StatusToSellersModal({ c, onClose }) {
     const ud = (u.dept || "").toLowerCase();
     return selDepts.some(id => ud === id.toLowerCase() || ud === eventDeptLabel(id).toLowerCase());
   };
-  const sellers = USERS_SEED.filter(u => u.role === "lite" && u.active);
+  const sellers = USERS_SEED.filter(u => u.role === ROLES.SALES && u.active);
   const filteredSellers = sellers.filter(u => selDepts.length === 0 ? true : matchesDept(u));
 
   const toggleDept = (id) => setSelDepts(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -3617,7 +3689,7 @@ function UsersModal({ users, onClose, onUpdate }) {
 }
 
 function AddUserModal({ users, onClose, onAdd }) {
-  const [f, setF] = useState({ name: "", email: "", phone: "", role: "lite", position: "" });
+  const [f, setF] = useState({ name: "", email: "", phone: "", role: "sales", position: "" });
   const ok = f.name && f.email && f.position;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 60, padding: 20 }}>
@@ -3764,12 +3836,12 @@ function LeadsTab({ c, role, onUpdate }) {
   const [open, setOpen] = useState(false);
   const leads = c.leads || [];
   const ro = isReadOnly(c);
-  const canEdit = !ro && ["admin","approver","hosteska","lite"].includes(role);
-  const canDelete = !ro && (role === "admin" || role === "approver"); // v0.24: prodejce/hosteska lead nemaže
-  const canAssign = !ro && (role === "admin" || role === "approver" || role === "hosteska" || role === "lite");
-  const sellers = USERS_SEED.filter(u => u.role === "lite");
+  const canEdit = canManageLeads(role, c);
+  const canDelete = canDeleteLead(role, c);
+  const canAssign = canAssignLead(role, c);
+  const sellers = USERS_SEED.filter(u => u.role === ROLES.SALES);
   const myId = USERS_SEED.find(u => u.role === role)?.id || null;   // v0.26: aktuální prodejce
-  const myLeads = role === "lite" ? leads.filter(l => l.assignedTo === myId) : [];
+  const myLeads = role === ROLES.SALES ? leads.filter(l => l.assignedTo === myId) : [];
 
   const addLead = (lead) => onUpdate((camp) => ({
     ...camp,
@@ -3801,7 +3873,7 @@ function LeadsTab({ c, role, onUpdate }) {
   return (
     <div>
       {/* v0.26: prodejce vidí nejdřív SVOJE leady + co má udělat */}
-      {role === "lite" && (
+      {role === ROLES.SALES && (
         <div style={{ background: `${T.info}12`, border: `1px solid ${T.info}55`, borderRadius: 10, padding: "12px 15px", marginBottom: 16 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.info, marginBottom: 4 }}>Vaše leady z akce ({myLeads.length})</div>
           <div style={{ fontSize: 12, color: T.creamDim, marginBottom: myLeads.length ? 10 : 0 }}>Přepište leady do CRM a kontaktujte zákazníky se zájmem o nabídku nebo financování.</div>
@@ -4087,7 +4159,7 @@ function HosteskaDetail({ c, onBack, onUpdate }) {
                   <div style={{ marginTop: 5 }}>
                     <select value={l.assignedTo || ""} onChange={e => onUpdate((camp) => ({ ...camp, leads: (camp.leads||[]).map(x => x.id===l.id ? {...x, assignedTo: e.target.value||null} : x) }))} style={{ ...inputStyle, width: "100%", padding: "3px 7px", fontSize: 11.5 }}>
                       <option value="">— přiřadit prodejci —</option>
-                      {USERS_SEED.filter(u => u.role === "lite").map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      {USERS_SEED.filter(u => u.role === ROLES.SALES).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -4478,6 +4550,7 @@ const buildArchiveMeta = (c) => {
 // I kdyby se v budoucnu změnil algoritmus, uzavřená akce zůstane stejná.
 const buildFinalReport = (c) => ({
   at: new Date().toISOString(),
+  builtWith: APP_VERSION,        // v0.27: verze algoritmu, který snapshot vytvořil — nikdy se nepřepočítá
   metrics: eventMetrics(c),
   insights: reportInsights(c),
   recommendations: reportRecommendations(c),
@@ -4485,6 +4558,15 @@ const buildFinalReport = (c) => ({
   needingAction: leadsNeedingAction(c),
   archiveMeta: buildArchiveMeta(c),
 });
+
+// v0.27: uzavření akce = čistá logika mimo UI. Komponenta volá jen onUpdate(closeEvent(role)).
+const closeEvent = (role) => (camp) => {
+  const parts = camp.parts.map((p) => ["ceka", "schvaleno"].includes(p.state)
+    ? { ...p, state: "zrusil", note: (p.note ? p.note + " · " : "") + "Neúčast — akce uzavřena" }
+    : p);
+  const closed = { ...camp, parts, status: "closed", closedAt: new Date().toISOString(), closedBy: role };
+  return { ...closed, finalReport: buildFinalReport(closed) };
+};
 
 function EventStatusBadge({ c, showPhase }) {
   const st = eventStatus(c);
@@ -4760,50 +4842,7 @@ function ReportTab({ c }) {
         <Btn kind="ghost" icon={ClipboardList} onClick={() => exportLeadSummary(c)}>Export obchodního souhrnu</Btn>
       <Btn kind="ghost" icon={Printer} onClick={() => exportBudgetPdf(c)}>PDF s grafem 🥧</Btn>
       <Btn kind="ghost" icon={Printer} onClick={() => window.print()}>Tisk / PDF</Btn>
-        <Btn kind="ghost" icon={Download} onClick={() => {
-          const w = window.open("", "_blank");
-          const isGolf = c.activityType === "golf";
-          w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Informační list — ${c.name}</title>
-<style>
-  body { font-family: 'CorporateS', Arial, sans-serif; margin: 0; background: #fff; color: #1a2a1a; }
-  .header { background: #1a5235; color: #f3efe3; padding: 24px 32px; display: flex; align-items: center; gap: 16px; }
-  .header h1 { margin: 0; font-size: 22px; font-family: 'CorporateA', Georgia, serif; }
-  .header .sub { font-size: 13px; opacity: 0.75; margin-top: 4px; }
-  .body { padding: 28px 32px; }
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
-  .info-box { background: #f5f2ea; border-radius: 8px; padding: 14px 16px; border-left: 4px solid #c8a044; }
-  .info-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #6a7a6a; margin-bottom: 4px; }
-  .info-value { font-size: 15px; font-weight: 600; color: #1a2a1a; }
-  table { width: 100%; border-collapse: collapse; margin-top: 18px; }
-  th { background: #1a5235; color: #f3efe3; padding: 8px 12px; text-align: left; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; }
-  td { padding: 8px 12px; border-bottom: 1px solid #e8e4da; font-size: 13px; }
-  tr:nth-child(even) td { background: #faf8f3; }
-  .footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #d9d3c2; font-size: 11px; color: #8a9a8a; text-align: center; }
-  @media print { body { -webkit-print-color-adjust: exact; } }
-</style></head><body>
-<div class="header">
-  <div style="font-size:32px">⛳</div>
-  <div><h1>${c.name}</h1><div class="sub">${c.place} · ${c.date ? new Date(c.date).toLocaleDateString("cs-CZ",{weekday:"long",year:"numeric",month:"long",day:"numeric"}) : ""}</div></div>
-</div>
-<div class="body">
-  <div class="info-grid">
-    <div class="info-box"><div class="info-label">Datum a čas</div><div class="info-value">${c.date ? new Date(c.date).toLocaleDateString("cs-CZ") : "—"}</div></div>
-    <div class="info-box"><div class="info-label">Místo konání</div><div class="info-value">${c.place || "—"}</div></div>
-    <div class="info-box"><div class="info-label">Typ akce</div><div class="info-value">${c.activityType === "golf" ? "⛳ Golf" : c.activityType === "degustace" ? "🍷 Degustace" : c.activityType === "testjizda" ? "🚗 Testovací jízdy" : "Akce"}</div></div>
-    <div class="info-box"><div class="info-label">Organizátor</div><div class="info-value">${c.team?.members?.find(m => m.role === "Organizátor")?.name || "—"}</div></div>
-  </div>
-  ${isGolf ? `<h3 style="color:#1a5235;margin-top:24px">⛳ Startovní listina</h3>
-  <table><tr><th>Flight</th><th>Čas startu</th><th>Hráč</th><th>HCP</th></tr>
-  ${(() => { const flights = {}; c.parts.filter(p => ["potvrzen","prihlasen"].includes(p.state)).forEach(p => { const f = p.flight ?? "—"; if (!flights[f]) flights[f] = []; flights[f].push(p); }); let rows = ""; let fi = 1; Object.entries(flights).sort().forEach(([fn, ps]) => { const t = c.startTime || "08:00"; const [h,m] = t.split(":").map(Number); const mins = (fi-1)*(c.interval||15); const ft = String(h + Math.floor((m+mins)/60)).padStart(2,"0") + ":" + String((m+mins)%60).padStart(2,"0"); rows += ps.map(p => `<tr><td>Flight ${fi}</td><td>${ft}</td><td>${p.data[c.fieldMeta?.nameId]||"—"}</td><td>${p.hcp||"—"}</td></tr>`).join(""); fi++; }); return rows; })()}
-  </table>` : `<h3 style="color:#1a5235;margin-top:24px">Seznam účastníků</h3>
-  <table><tr><th>Jméno</th><th>Stav</th><th>Vybavení</th></tr>
-  ${c.parts.filter(p=>["potvrzen","prihlasen"].includes(p.state)).map(p => `<tr><td>${p.data[c.fieldMeta?.nameId]||"—"}</td><td>${p.state==="potvrzen"?"Potvrzen":"Pozván"}</td><td>${Object.entries(p.eqChoice||{}).filter(([,v])=>v).map(([k])=>k).join(", ")||"—"}</td></tr>`).join("")}
-  </table>`}
-  <div class="footer">S&W automobily · Vytištěno ${new Date().toLocaleDateString("cs-CZ")}</div>
-</div></body></html>`);
-          w.document.close();
-          setTimeout(() => w.print(), 500);
-        }}>📋 Informační list</Btn>
+        <Btn kind="ghost" icon={Download} onClick={() => exportInfoSheet(c)}>📋 Informační list</Btn>
       </div>
 
       <div style={{ fontSize: 18, fontWeight: 700, color: T.cream, marginBottom: 2 }}>Report — {c.name}</div>
@@ -4957,7 +4996,7 @@ function ReportTab({ c }) {
 function StartList({ c, role, onUpdate }) {
   const { nameId } = c.fieldMeta;
   const [dragId, setDragId] = useState(null);
-  const canEdit = role !== "lite";
+  const canEdit = role !== ROLES.SALES;
 
   const players = c.parts.filter((p) => STARTLIST_OK.includes(p.state));
   const fc = Math.max(1, Math.ceil(players.length / 4));
@@ -5043,7 +5082,7 @@ function StartList({ c, role, onUpdate }) {
 ════════════════════════════════════════ */
 function TestDriveGrid({ c, role, onUpdate }) {
   const { nameId } = c.fieldMeta;
-  const canEdit = role === "admin" || role === "approver";
+  const canEdit = isManagement(role);
   const [dragRes, setDragRes] = useState(null);   // id přetahované rezervace
   const [cellMenu, setCellMenu] = useState(null);  // { carId, slotIndex }
   const [blockPick, setBlockPick] = useState(null); // výběr délky bloku: { type } (v otevřeném menu)
@@ -5788,6 +5827,53 @@ function HcpModal({ onClose, onSave }) {
 /* ════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════ */
+function exportInfoSheet(c) {
+
+          const w = window.open("", "_blank");
+          const isGolf = c.activityType === "golf";
+          w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Informační list — ${c.name}</title>
+<style>
+  body { font-family: 'CorporateS', Arial, sans-serif; margin: 0; background: #fff; color: #1a2a1a; }
+  .header { background: #1a5235; color: #f3efe3; padding: 24px 32px; display: flex; align-items: center; gap: 16px; }
+  .header h1 { margin: 0; font-size: 22px; font-family: 'CorporateA', Georgia, serif; }
+  .header .sub { font-size: 13px; opacity: 0.75; margin-top: 4px; }
+  .body { padding: 28px 32px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 18px 0; }
+  .info-box { background: #f5f2ea; border-radius: 8px; padding: 14px 16px; border-left: 4px solid #c8a044; }
+  .info-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #6a7a6a; margin-bottom: 4px; }
+  .info-value { font-size: 15px; font-weight: 600; color: #1a2a1a; }
+  table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+  th { background: #1a5235; color: #f3efe3; padding: 8px 12px; text-align: left; font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; }
+  td { padding: 8px 12px; border-bottom: 1px solid #e8e4da; font-size: 13px; }
+  tr:nth-child(even) td { background: #faf8f3; }
+  .footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid #d9d3c2; font-size: 11px; color: #8a9a8a; text-align: center; }
+  @media print { body { -webkit-print-color-adjust: exact; } }
+</style></head><body>
+<div class="header">
+  <div style="font-size:32px">⛳</div>
+  <div><h1>${c.name}</h1><div class="sub">${c.place} · ${c.date ? new Date(c.date).toLocaleDateString("cs-CZ",{weekday:"long",year:"numeric",month:"long",day:"numeric"}) : ""}</div></div>
+</div>
+<div class="body">
+  <div class="info-grid">
+    <div class="info-box"><div class="info-label">Datum a čas</div><div class="info-value">${c.date ? new Date(c.date).toLocaleDateString("cs-CZ") : "—"}</div></div>
+    <div class="info-box"><div class="info-label">Místo konání</div><div class="info-value">${c.place || "—"}</div></div>
+    <div class="info-box"><div class="info-label">Typ akce</div><div class="info-value">${c.activityType === "golf" ? "⛳ Golf" : c.activityType === "degustace" ? "🍷 Degustace" : c.activityType === "testjizda" ? "🚗 Testovací jízdy" : "Akce"}</div></div>
+    <div class="info-box"><div class="info-label">Organizátor</div><div class="info-value">${c.team?.members?.find(m => m.role === "Organizátor")?.name || "—"}</div></div>
+  </div>
+  ${isGolf ? `<h3 style="color:#1a5235;margin-top:24px">⛳ Startovní listina</h3>
+  <table><tr><th>Flight</th><th>Čas startu</th><th>Hráč</th><th>HCP</th></tr>
+  ${(() => { const flights = {}; c.parts.filter(p => ["potvrzen","prihlasen"].includes(p.state)).forEach(p => { const f = p.flight ?? "—"; if (!flights[f]) flights[f] = []; flights[f].push(p); }); let rows = ""; let fi = 1; Object.entries(flights).sort().forEach(([fn, ps]) => { const t = c.startTime || "08:00"; const [h,m] = t.split(":").map(Number); const mins = (fi-1)*(c.interval||15); const ft = String(h + Math.floor((m+mins)/60)).padStart(2,"0") + ":" + String((m+mins)%60).padStart(2,"0"); rows += ps.map(p => `<tr><td>Flight ${fi}</td><td>${ft}</td><td>${p.data[c.fieldMeta?.nameId]||"—"}</td><td>${p.hcp||"—"}</td></tr>`).join(""); fi++; }); return rows; })()}
+  </table>` : `<h3 style="color:#1a5235;margin-top:24px">Seznam účastníků</h3>
+  <table><tr><th>Jméno</th><th>Stav</th><th>Vybavení</th></tr>
+  ${c.parts.filter(p=>["potvrzen","prihlasen"].includes(p.state)).map(p => `<tr><td>${p.data[c.fieldMeta?.nameId]||"—"}</td><td>${p.state==="potvrzen"?"Potvrzen":"Pozván"}</td><td>${Object.entries(p.eqChoice||{}).filter(([,v])=>v).map(([k])=>k).join(", ")||"—"}</td></tr>`).join("")}
+  </table>`}
+  <div class="footer">S&W automobily · Vytištěno ${new Date().toLocaleDateString("cs-CZ")}</div>
+</div></body></html>`);
+          w.document.close();
+          setTimeout(() => w.print(), 500);
+        
+}
+
 // v0.25: samostatný export obchodního souhrnu — jednoduchý přehled pro přepis do CRM (ne modul)
 function exportLeadSummary(c) {
   const leads = c.finalReport?.leads || c.leads || [];
