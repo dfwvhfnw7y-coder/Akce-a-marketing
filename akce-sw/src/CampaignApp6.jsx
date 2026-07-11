@@ -13,12 +13,21 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.27";
-const APP_BUILD = "2026-07-11 12:21";
+const APP_VERSION = "0.28";
+const APP_BUILD = "2026-07-11 12:49";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.28",
+    date: "2026-07-11",
+    items: [
+      "Snapshot invariant: uzavřená akce čte report VÝHRADNĚ ze snapshotu — nevyužité/no-show/bez kontaktu/neočekávané jsou zmrazené ve finalReport.opportunities.",
+      "Bezpečnost exportů: escapeHtml na všechna uživatelská data v exportInfoSheet a exportLeadSummary.",
+      "data/store adapter (useCampaignStore): loadCampaigns / subscribeCampaigns / updateCampaign — připraveno na Firebase, kontrakt onUpdate(fn) beze změny.",
+    ],
+  },
   {
     version: "0.27",
     date: "2026-07-11",
@@ -301,6 +310,8 @@ const vatKc   = (net, r) => Math.round(num(net) * r / 100);
 const withVat = (net, r) => Math.round(num(net) * (1 + r / 100));
 // ochrana exportů proti CSV/formula injection: buňka začínající =,+,-,@ (nebo tab/CR)
 // by se v Excelu vyhodnotila jako vzorec. Prefixneme apostrofem.
+// v0.28: escape uživatelských dat do HTML exportů (stabilita + bezpečnost)
+const escapeHtml = (v) => String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 const csvSafe = (s) => {
   const str = String(s ?? "");
   return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
@@ -972,6 +983,24 @@ const CORP_FONT_CSS = `
   h1, h2, h3, .display { font-family: 'CorporateA', Georgia, serif !important; }
 `;
 
+/* ══════════════════════════════════════════════════════════════
+   DATA/STORE ADAPTER (v0.28)
+   Jediné místo perzistence. Dnes nad useState, zítra Firebase.
+   Rozhraní připravené na Firebase; kontrakt onUpdate(fn) se NEMĚNÍ.
+     loadCampaigns()      → getDocs(collection(db,"events"))
+     subscribeCampaigns() → onSnapshot(collection(db,"events"), cb) → vrací unsubscribe
+     updateCampaign(id,fn)→ transakce/updateDoc nad events/{id}
+     addCampaign(c)       → setDoc(doc(db,"events",c.id), c)
+   ══════════════════════════════════════════════════════════════ */
+function useCampaignStore() {
+  const [campaigns, setCampaigns] = useState(seed);
+  const loadCampaigns      = () => campaigns;
+  const subscribeCampaigns = (cb) => { cb(campaigns); return () => {}; };
+  const updateCampaign     = (id, fn) => setCampaigns((cs) => cs.map((c) => c.id === id ? fn(c) : c));
+  const addCampaign        = (c) => setCampaigns((cs) => [...cs, c]);
+  return { campaigns, loadCampaigns, subscribeCampaigns, updateCampaign, addCampaign };
+}
+
 export default function App() {
   React.useEffect(() => {
     if (!document.getElementById('corp-fonts')) {
@@ -981,7 +1010,8 @@ export default function App() {
       document.head.appendChild(style);
     }
   }, []);
-  const [campaigns, setCampaigns] = useState(seed);
+  const store = useCampaignStore();
+  const campaigns = store.campaigns;
   const [annualBudget, setAnnualBudget] = useState({ total: 500000, periodFrom: "2026-03", periodTo: "2027-03", note: "" });
   const [users, setUsers] = useState(initUsers);
   const [showUsers, setShowUsers] = useState(false);
@@ -1004,7 +1034,7 @@ export default function App() {
     return m;
   }, [campaigns]);
 
-  const update  = (id, fn) => setCampaigns((cs) => cs.map((c) => c.id === id ? fn(c) : c));
+  const update  = store.updateCampaign;   // kontrakt onUpdate(fn) → update(id, fn) beze změny
   const current = campaigns.find((c) => c.id === open);
   const liteBlocked = role === ROLES.SALES && current && current.owner !== "me";
   const hosteskaView = role === ROLES.HOSTESS;
@@ -1054,7 +1084,7 @@ export default function App() {
             annualBudget={annualBudget} setAnnualBudget={setAnnualBudget}
             totalExpected={totalExpected} totalReal={totalReal}
             notifLog={notifLog} onRemind={remind}
-            onCreate={(c) => { setCampaigns((cs) => [...cs, c]); setOpen(c.id); }}
+            onCreate={(c) => { store.addCampaign(c); setOpen(c.id); }}
           />
         ) : hosteskaView ? (
           <HosteskaDetail c={current} onBack={() => setOpen(null)} onUpdate={(fn) => update(current.id, fn)} />
@@ -4548,6 +4578,18 @@ const buildArchiveMeta = (c) => {
 
 // snapshot uzavření je NEMĚNNÝ: report, poznatky, doporučení i obchodní souhrn se zmrazí k okamžiku uzavření.
 // I kdyby se v budoucnu změnil algoritmus, uzavřená akce zůstane stejná.
+// v0.28: seznamy příležitostí zmrazené do snapshotu — po uzavření se nečtou živá parts
+const buildOpportunities = (c) => {
+  const nameId = c.fieldMeta?.nameId, emailId = c.fieldMeta?.emailId, phoneId = c.fieldMeta?.phoneId;
+  const has = (v) => !!(v && String(v).trim());
+  const attend = (c.parts || []).filter((p) => ["potvrzen", "prihlasen"].includes(p.state));
+  return {
+    noShow:    (c.parts || []).filter((p) => p.state === "nedostavil").map((p) => p.data?.[nameId] || "—"),
+    noContact: attend.filter((p) => !has(p.data?.[phoneId]) && !has(p.data?.[emailId])).map((p) => p.data?.[nameId] || "—"),
+    unexpected: unexpectedGuests(c),
+  };
+};
+
 const buildFinalReport = (c) => ({
   at: new Date().toISOString(),
   builtWith: APP_VERSION,        // v0.27: verze algoritmu, který snapshot vytvořil — nikdy se nepřepočítá
@@ -4556,6 +4598,7 @@ const buildFinalReport = (c) => ({
   recommendations: reportRecommendations(c),
   leads: JSON.parse(JSON.stringify(c.leads || [])),   // zmrazený obchodní souhrn
   needingAction: leadsNeedingAction(c),
+  opportunities: buildOpportunities(c),   // v0.28: zmrazené seznamy příležitostí
   archiveMeta: buildArchiveMeta(c),
 });
 
@@ -4588,12 +4631,8 @@ function ReportInsights({ c }) {
   const q   = leadQuality(cSnap);
   const insights = c.finalReport?.insights || reportInsights(c);
   const recs = c.finalReport?.recommendations || reportRecommendations(c);
-  const { nameId, emailId, phoneId } = c.fieldMeta || {};
-  const has = (v) => !!(v && String(v).trim());
-  const attend = (c.parts || []).filter((p) => ["potvrzen", "prihlasen"].includes(p.state));
-  const noShow = (c.parts || []).filter((p) => p.state === "nedostavil");
-  const noContact = attend.filter((p) => !has(p.data?.[phoneId]) && !has(p.data?.[emailId]));
-  const unexpected = unexpectedGuests(cSnap);
+  // v0.28: pro uzavřenou akci VÝHRADNĚ snapshot; jinak živý dopočet (náhled před uzavřením)
+  const opp = c.finalReport?.opportunities || buildOpportunities(cSnap);
 
   const cell = (n, l, col) => (
     <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 9, padding: "10px 12px" }}>
@@ -4705,8 +4744,8 @@ function ReportInsights({ c }) {
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.warn, marginBottom: 8 }}>⚠ Nevyužité příležitosti</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {oppList("Potvrzení, kteří nedorazili", noShow.map((p) => p.data?.[nameId] || "—"), T.warn, "🚫")}
-            {oppList("Zákazníci bez kontaktu", noContact.map((p) => p.data?.[nameId] || "—"), T.warn, "📵")}
+            {oppList("Potvrzení, kteří nedorazili", opp.noShow, T.warn, "🚫")}
+            {oppList("Zákazníci bez kontaktu", opp.noContact, T.warn, "📵")}
             {oppList("Leady bez obchodníka", q.noSeller.map((l) => l.name || "—"), T.danger, "❗")}
             {oppList("Bez zadaného zájmu", q.noInterest.map((l) => l.name || "—"), T.textDim, "❔")}
           </div>
@@ -4714,7 +4753,7 @@ function ReportInsights({ c }) {
         <div>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.info, marginBottom: 8 }}>✨ Neočekávané příležitosti</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {oppList("Hosté z ulice a noví kontakti", unexpected, T.info, "🚶")}
+            {oppList("Hosté z ulice a noví kontakti", opp.unexpected, T.info, "🚶")}
           </div>
         </div>
       </div>
@@ -5831,7 +5870,7 @@ function exportInfoSheet(c) {
 
           const w = window.open("", "_blank");
           const isGolf = c.activityType === "golf";
-          w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Informační list — ${c.name}</title>
+          w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Informační list — ${escapeHtml(c.name)}</title>
 <style>
   body { font-family: 'CorporateS', Arial, sans-serif; margin: 0; background: #fff; color: #1a2a1a; }
   .header { background: #1a5235; color: #f3efe3; padding: 24px 32px; display: flex; align-items: center; gap: 16px; }
@@ -5851,21 +5890,21 @@ function exportInfoSheet(c) {
 </style></head><body>
 <div class="header">
   <div style="font-size:32px">⛳</div>
-  <div><h1>${c.name}</h1><div class="sub">${c.place} · ${c.date ? new Date(c.date).toLocaleDateString("cs-CZ",{weekday:"long",year:"numeric",month:"long",day:"numeric"}) : ""}</div></div>
+  <div><h1>${escapeHtml(c.name)}</h1><div class="sub">${escapeHtml(c.place)} · ${c.date ? new Date(c.date).toLocaleDateString("cs-CZ",{weekday:"long",year:"numeric",month:"long",day:"numeric"}) : ""}</div></div>
 </div>
 <div class="body">
   <div class="info-grid">
     <div class="info-box"><div class="info-label">Datum a čas</div><div class="info-value">${c.date ? new Date(c.date).toLocaleDateString("cs-CZ") : "—"}</div></div>
-    <div class="info-box"><div class="info-label">Místo konání</div><div class="info-value">${c.place || "—"}</div></div>
+    <div class="info-box"><div class="info-label">Místo konání</div><div class="info-value">${escapeHtml(c.place || "—")}</div></div>
     <div class="info-box"><div class="info-label">Typ akce</div><div class="info-value">${c.activityType === "golf" ? "⛳ Golf" : c.activityType === "degustace" ? "🍷 Degustace" : c.activityType === "testjizda" ? "🚗 Testovací jízdy" : "Akce"}</div></div>
-    <div class="info-box"><div class="info-label">Organizátor</div><div class="info-value">${c.team?.members?.find(m => m.role === "Organizátor")?.name || "—"}</div></div>
+    <div class="info-box"><div class="info-label">Organizátor</div><div class="info-value">${escapeHtml(c.team?.members?.find(m => m.role === "Organizátor")?.name || "—")}</div></div>
   </div>
   ${isGolf ? `<h3 style="color:#1a5235;margin-top:24px">⛳ Startovní listina</h3>
   <table><tr><th>Flight</th><th>Čas startu</th><th>Hráč</th><th>HCP</th></tr>
-  ${(() => { const flights = {}; c.parts.filter(p => ["potvrzen","prihlasen"].includes(p.state)).forEach(p => { const f = p.flight ?? "—"; if (!flights[f]) flights[f] = []; flights[f].push(p); }); let rows = ""; let fi = 1; Object.entries(flights).sort().forEach(([fn, ps]) => { const t = c.startTime || "08:00"; const [h,m] = t.split(":").map(Number); const mins = (fi-1)*(c.interval||15); const ft = String(h + Math.floor((m+mins)/60)).padStart(2,"0") + ":" + String((m+mins)%60).padStart(2,"0"); rows += ps.map(p => `<tr><td>Flight ${fi}</td><td>${ft}</td><td>${p.data[c.fieldMeta?.nameId]||"—"}</td><td>${p.hcp||"—"}</td></tr>`).join(""); fi++; }); return rows; })()}
+  ${(() => { const flights = {}; c.parts.filter(p => ["potvrzen","prihlasen"].includes(p.state)).forEach(p => { const f = p.flight ?? "—"; if (!flights[f]) flights[f] = []; flights[f].push(p); }); let rows = ""; let fi = 1; Object.entries(flights).sort().forEach(([fn, ps]) => { const t = c.startTime || "08:00"; const [h,m] = t.split(":").map(Number); const mins = (fi-1)*(c.interval||15); const ft = String(h + Math.floor((m+mins)/60)).padStart(2,"0") + ":" + String((m+mins)%60).padStart(2,"0"); rows += ps.map(p => `<tr><td>Flight ${fi}</td><td>${ft}</td><td>${escapeHtml(p.data[c.fieldMeta?.nameId]||"—")}</td><td>${escapeHtml(p.hcp||"—")}</td></tr>`).join(""); fi++; }); return rows; })()}
   </table>` : `<h3 style="color:#1a5235;margin-top:24px">Seznam účastníků</h3>
   <table><tr><th>Jméno</th><th>Stav</th><th>Vybavení</th></tr>
-  ${c.parts.filter(p=>["potvrzen","prihlasen"].includes(p.state)).map(p => `<tr><td>${p.data[c.fieldMeta?.nameId]||"—"}</td><td>${p.state==="potvrzen"?"Potvrzen":"Pozván"}</td><td>${Object.entries(p.eqChoice||{}).filter(([,v])=>v).map(([k])=>k).join(", ")||"—"}</td></tr>`).join("")}
+  ${c.parts.filter(p=>["potvrzen","prihlasen"].includes(p.state)).map(p => `<tr><td>${escapeHtml(p.data[c.fieldMeta?.nameId]||"—")}</td><td>${p.state==="potvrzen"?"Potvrzen":"Pozván"}</td><td>${escapeHtml(Object.entries(p.eqChoice||{}).filter(([,v])=>v).map(([k])=>k).join(", ")||"—")}</td></tr>`).join("")}
   </table>`}
   <div class="footer">S&W automobily · Vytištěno ${new Date().toLocaleDateString("cs-CZ")}</div>
 </div></body></html>`);
@@ -5882,16 +5921,16 @@ function exportLeadSummary(c) {
     const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest);
     const fin = FINANCING.find((x) => x.id === l.financing);
     return `<tr>
-      <td>${(l.name || "—")}${l.phone ? " · " + l.phone : ""}</td>
-      <td>${(l.model || "—")}${lvl ? " (" + lvl.label + ")" : ""}</td>
+      <td>${escapeHtml(l.name || "—")}${l.phone ? " · " + escapeHtml(l.phone) : ""}</td>
+      <td>${escapeHtml(l.model || "—")}${lvl ? " (" + escapeHtml(lvl.label) + ")" : ""}</td>
       <td>${l.wantsOffer === true ? "ANO" : l.wantsOffer === false ? "ne" : "—"}</td>
       <td>${fin ? fin.label : "—"}</td>
       <td>${l.wantsContact === true ? "ANO" : "—"}</td>
-      <td>${seller ? seller.name : "NEPŘIŘAZENO"}</td>
+      <td>${seller ? escapeHtml(seller.name) : "NEPŘIŘAZENO"}</td>
     </tr>`;
   }).join("");
   const w = window.open("", "_blank");
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Obchodní souhrn — ${c.name}</title>
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Obchodní souhrn — ${escapeHtml(c.name)}</title>
 <style>
   body { font-family: Arial, sans-serif; margin: 0; color: #1a2a1a; }
   .header { background: #1a5235; color: #f3efe3; padding: 20px 28px; }
@@ -5904,7 +5943,7 @@ function exportLeadSummary(c) {
   .footer { margin-top: 22px; font-size: 11px; color: #8a9a8a; }
   @media print { body { -webkit-print-color-adjust: exact; } }
 </style></head><body>
-<div class="header"><h1>Obchodní souhrn — ${c.name}</h1><div class="sub">${c.place || ""} · ${c.date ? new Date(c.date).toLocaleDateString("cs-CZ") : ""} · ${leads.length} leadů</div></div>
+<div class="header"><h1>Obchodní souhrn — ${escapeHtml(c.name)}</h1><div class="sub">${escapeHtml(c.place || "")} · ${c.date ? new Date(c.date).toLocaleDateString("cs-CZ") : ""} · ${leads.length} leadů</div></div>
 <div class="body">
   <table><thead><tr><th>Zákazník</th><th>Zájem</th><th>Nabídka</th><th>Financování</th><th>Další kontakt</th><th>Obchodník</th></tr></thead>
   <tbody>${rowsHtml || '<tr><td colspan="7">Žádné leady.</td></tr>'}</tbody></table>
