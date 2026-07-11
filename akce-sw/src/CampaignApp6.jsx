@@ -13,12 +13,27 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.24";
-const APP_BUILD = "2026-07-11 11:04";
+const APP_VERSION = "0.25";
+const APP_BUILD = "2026-07-11 11:38";
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.25",
+    date: "2026-07-11",
+    items: [
+      "Uzavření = tvorba finálního výstupu: report, obchodní souhrn, seznam předaných leadů, poznatky, doporučení a neměnný snapshot.",
+      "Report: obchodní souhrn s prioritou „Vyžaduje akci\" je první sekcí; přidány Nevyužité a Neočekávané příležitosti.",
+      "Samostatný export obchodního souhrnu (přehled pro přepis do CRM).",
+      "Uzavírací dialog: přehled „Leady vyžadující akci\" (nabídka / financování / kontakt / jízda).",
+      "Kontrola kvality leadů: lead bez obchodníka = nejvyšší priorita; přidány kontroly bez e-mailu a bez zadaného zájmu.",
+      "Předání leadů: metrika celkem / předáno / bez obchodníka.",
+      "Poznatky obohaceny o obchodní stránku; doporučení jsou vysvětlitelná (s daty).",
+      "Archiv ukládá metadata akce a je datově připraven na budoucí trendy.",
+      "Read-only po uzavření vynucen v logice napříč mutačními cestami, ne jen skrytím tlačítek.",
+    ],
+  },
   {
     version: "0.24",
     date: "11. 7. 2026",
@@ -1002,6 +1017,8 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
   const [showAnnual, setShowAnnual] = useState(false);
   const [statsScope, setStatsScope] = useState("all");
   const [showArchive, setShowArchive] = useState(false);
+  const [arcYear, setArcYear] = useState("all");   // v0.25: filtr archivu
+  const [arcType, setArcType] = useState("all");
 
   const scopedCamps   = statsScope === "all" ? campaigns : campaigns.filter((cp) => cp.id === statsScope);
   const stateChartData = STATE_ORDER.map((s) => ({
@@ -1141,9 +1158,32 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
         </div>
       )}
 
+      {/* filtr archivu — porovnání akcí podle roku a typu (v0.25) */}
+      {showArchive && (() => {
+        const arc = campaigns.filter((c) => eventStatus(c) === "archived");
+        const years = [...new Set(arc.map((c) => c.date ? String(c.date).slice(0, 4) : null).filter(Boolean))].sort().reverse();
+        const types = [...new Set(arc.map((c) => c.activityType).filter(Boolean))];
+        return (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14, padding: "10px 14px", background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10 }}>
+            <span style={{ fontSize: 12, color: T.textDim }}>Archiv — filtr:</span>
+            <select value={arcYear} onChange={(e) => setArcYear(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "5px 9px", fontSize: 12 }}>
+              <option value="all">Všechny roky</option>
+              {years.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+            <select value={arcType} onChange={(e) => setArcType(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "5px 9px", fontSize: 12 }}>
+              <option value="all">Všechny typy</option>
+              {types.map((tp) => <option key={tp} value={tp}>{ACTIVITY_TYPES.find((x) => x.id === tp)?.label || tp}</option>)}
+            </select>
+            <span style={{ fontSize: 11.5, color: T.textDim }}>{arc.filter((c) => (arcYear === "all" || String(c.date).slice(0, 4) === arcYear) && (arcType === "all" || c.activityType === arcType)).length} akcí</span>
+          </div>
+        );
+      })()}
+
       {/* dlaždice */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(290px,1fr))", gap: 12 }}>
-        {campaigns.filter((c) => showArchive ? eventStatus(c) === "archived" : eventStatus(c) !== "archived").map((c) => {
+        {campaigns.filter((c) => showArchive
+            ? eventStatus(c) === "archived" && (arcYear === "all" || String(c.date).slice(0, 4) === arcYear) && (arcType === "all" || c.activityType === arcType)
+            : eventStatus(c) !== "archived").map((c) => {
           const t = budgetTotals(c.budget?.items);
           const wc = c.parts.filter((p) => p.state === "ceka").length;
           return (
@@ -1151,6 +1191,15 @@ function Dashboard({ campaigns, role, used, onOpen, onEdit, annualBudget, setAnn
               <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>{c.name}</div>
               <div style={{ fontSize: 12, color: T.textDim, marginBottom: 6 }}>{fmt(c.date)} · {c.place}</div>
               <div style={{ marginBottom: 8 }}><EventStatusBadge c={c} /></div>
+              {eventStatus(c) === "archived" && c.finalReport?.archiveMeta && (() => {
+                const a = c.finalReport.archiveMeta;
+                const chips = [[`${a.leadCount} leadů`, T.brass], [`${a.attendees} účastníků`, T.greenLite], [`${a.drives} jízd`, T.info], a.topModel ? [`⭐ ${a.topModel}`, T.brass] : null].filter(Boolean);
+                return (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 8 }}>
+                    {chips.map(([l, col], i) => <span key={i} style={{ fontSize: 10.5, color: col, background: `${col}14`, border: `1px solid ${col}44`, borderRadius: 6, padding: "1px 7px" }}>{l}</span>)}
+                  </div>
+                );
+              })()}
               <div style={{ fontSize: 11, color: T.brass, marginBottom: 10 }}>
                 {ACTIVITY_TYPES.find((x) => x.id === c.activityType)?.label} · {((c.approvers && c.approvers.length) ? c.approvers : [c.approver].filter(Boolean)).map((id) => APPROVERS.find((a) => a.id === id)?.name).filter(Boolean).join(", ")}
               </div>
@@ -1996,7 +2045,9 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
     if (!ok) setTab("list");
   }, [isMgmt, tab, canSeeDrive]);
 
+  // v0.25: read-only se vynucuje v logice, ne jen skrytím tlačítek — po uzavření/archivaci neprojde žádná mutace.
   const addPart = (data, eqChoice = {}, customerInfo = {}) => {
+    if (ro) return false;
     const email = (data[emailId] || "").trim().toLowerCase();
     if (email && c.parts.some((p) => (p.data[emailId] || "").toLowerCase() === email)) {
       setDupErr(`${data[emailId]} už je v akci.`); return false;
@@ -2009,6 +2060,7 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
   };
 
   const approve  = (pid) => {
+    if (ro) return;
     const newState = c.inviteMode === "batch" ? "schvaleno" : "prihlasen";
     onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, state: newState } : p) }));
     if (newState === "prihlasen") {
@@ -2017,12 +2069,14 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
     }
   };
   const sendBatchInvites = () => {
+    if (ro) return;
     const pending = c.parts.filter((p) => p.state === "schvaleno");
     if (!pending.length) return;
     onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.state === "schvaleno" ? { ...p, state: "prihlasen" } : p) }));
     alert(`[Mock EmailJS]\nHromadně odesláno ${pending.length} pozvánek na akci ${c.name}.`);
   };
   const resendInvite = (pid) => {
+    if (ro) return;
     const p = c.parts.find((x) => x.id === pid);
     if (p) alert(`[Mock EmailJS]\nKomu: ${p.data[c.fieldMeta?.emailId]}\nPředmět: Pozvánka na ${c.name} (opakované zaslání)`);
   };
@@ -2034,20 +2088,21 @@ function Detail({ c, role, used, crossMap, blocked, onBack, onUpdate, onRemind }
       ? { ...camp, reservations: (camp.reservations || []).filter((r) => r.partId !== pid) }
       : camp;
 
-  const reject   = (pid) => onUpdate((camp) => cleanDriveRes({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, state: "zrusil", note: (p.note ? p.note + " · " : "") + "Zamítnuto schvalovatelem" } : p) }, pid, "zrusil"));
+  const reject   = (pid) => { if (ro) return; return onUpdate((camp) => cleanDriveRes({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, state: "zrusil", note: (p.note ? p.note + " · " : "") + "Zamítnuto schvalovatelem" } : p) }, pid, "zrusil")); };
   const setState = (pid, s) => {
+    if (ro) return;
     if (s === "potvrzen" && isGolf) {
       const p = c.parts.find((x) => x.id === pid);
       if (!p?.hcp) { setHcpModal(pid); return; }
     }
     onUpdate((camp) => cleanDriveRes({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, state: s } : p) }, pid, s));
   };
-  const setHcp   = (pid, hcp) => { onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, hcp, state: "potvrzen" } : p) })); setHcpModal(null); };
-  const setNote  = (pid, note) => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, note } : p) }));
-  const setCrm   = (pid, crm)  => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, crm } : p) }));
-  const setGroup = (pid, gid)  => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, group: gid } : p) }));
-  const remove   = (pid) => onUpdate((camp) => ({ ...camp, parts: camp.parts.filter((p) => p.id !== pid), reservations: (camp.reservations || []).filter((r) => r.partId !== pid) }));
-  const assign   = (pid, uid2) => onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, assignedTo: uid2 || null } : p) }));
+  const setHcp   = (pid, hcp) => { if (ro) return; onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, hcp, state: "potvrzen" } : p) })); setHcpModal(null); };
+  const setNote  = (pid, note) => ro ? undefined : onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, note } : p) }));
+  const setCrm   = (pid, crm)  => ro ? undefined : onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, crm } : p) }));
+  const setGroup = (pid, gid)  => ro ? undefined : onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, group: gid } : p) }));
+  const remove   = (pid) => ro ? undefined : onUpdate((camp) => ({ ...camp, parts: camp.parts.filter((p) => p.id !== pid), reservations: (camp.reservations || []).filter((r) => r.partId !== pid) }));
+  const assign   = (pid, uid2) => ro ? undefined : onUpdate((camp) => ({ ...camp, parts: camp.parts.map((p) => p.id === pid ? { ...p, assignedTo: uid2 || null } : p) }));
   const currentUser = USERS_SEED.find(u => u.role === role) || null;
   const currentUserId = currentUser?.id || null;
 
@@ -3679,6 +3734,7 @@ function BusinessRow({ lead, onSave }) {
       <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <OfferToggle label="Chce nabídku" val={lead.wantsOffer == null ? null : lead.wantsOffer} onSet={(v) => onSave({ wantsOffer: v })} />
         <OfferToggle label="Další kontakt" val={lead.wantsContact == null ? null : lead.wantsContact} onSet={(v) => onSave({ wantsContact: v })} />
+        <OfferToggle label="Další jízda" val={lead.wantsDrive == null ? null : lead.wantsDrive} onSet={(v) => onSave({ wantsDrive: v })} />
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 11, color: T.textDim }}>Financování</span>
           <select value={lead.financing || ""} onChange={(e) => onSave({ financing: e.target.value || null })} style={{ ...inputStyle, width: "auto", padding: "3px 8px", fontSize: 11.5, flex: "none" }}>
@@ -4259,13 +4315,26 @@ const REPORT_THRESHOLDS = { rsvpLow: 0.6, noShowHigh: 0.15, offerStrong: 0.5, no
 const leadQuality = (c) => {
   const leads = c.leads || [];
   const has = (v) => !!(v && String(v).trim());
+  const noInterest = (l) => !has(l.model) && !l.interest && l.wantsOffer !== true && l.wantsContact !== true && l.wantsDrive !== true && !l.financing;
   return {
     total: leads.length,
-    assigned: leads.filter((l) => !!l.assignedTo),
-    noSeller: leads.filter((l) => !l.assignedTo),
-    noPhone:  leads.filter((l) => !has(l.phone)),
-    noNote:   leads.filter((l) => !has(l.note)),
+    assigned:   leads.filter((l) => !!l.assignedTo),
+    noSeller:   leads.filter((l) => !l.assignedTo),   // v0.25: nejvyšší priorita — nikdo za lead neodpovídá
+    noPhone:    leads.filter((l) => !has(l.phone)),
+    noNote:     leads.filter((l) => !has(l.note)),
+    noInterest: leads.filter(noInterest),
   };
+};
+
+// v0.25: leady vyžadující obchodní akci — nejdůležitější obchodní informace akce (jen informativní, ne scoring)
+const leadsNeedingAction = (c) => {
+  const leads = c.leads || [];
+  const offer     = leads.filter((l) => l.wantsOffer === true);
+  const financing = leads.filter((l) => !!l.financing);
+  const contact   = leads.filter((l) => l.wantsContact === true);
+  const drive     = leads.filter((l) => l.wantsDrive === true);
+  const union = new Set([...offer, ...financing, ...contact, ...drive].map((l) => l.id));
+  return { offer, financing, contact, drive, total: union.size };
 };
 
 const eventMetrics = (c) => {
@@ -4283,10 +4352,20 @@ const eventMetrics = (c) => {
   const street    = parts.filter((p) => p.fromStreet).length;
   const emId = c.fieldMeta?.emailId;
   const attendeesNoEmail = parts.filter((p) => ["potvrzen", "prihlasen"].includes(p.state) && !((p.data?.[emId] || "").trim())).length;
+  const drive     = leads.filter((l) => l.wantsDrive === true).length;
   const ic = {};
   leads.forEach((l) => { const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest); const k = lvl ? lvl.label : (l.interest || l.model || "—"); ic[k] = (ic[k] || 0) + 1; });
   const topInterests = Object.entries(ic).sort((a, b) => b[1] - a[1]).slice(0, 5);
-  return { invited, confirmed, noShow, attended, drives, leadCount: leads.length, offers, financing, contacts, street, attendeesNoEmail, topInterests };
+  // počty podle konkrétního modelu vozu (pro obchodní poznatky a doporučení kapacity)
+  const mc = {};
+  leads.forEach((l) => { const m = (l.model || "").trim(); if (m) mc[m] = (mc[m] || 0) + 1; });
+  const modelCounts = Object.entries(mc).sort((a, b) => b[1] - a[1]);
+  const topModel = modelCounts[0] || null;
+  // financování: nejčastější typ
+  const fc = {};
+  leads.forEach((l) => { if (l.financing) { const lab = (FINANCING.find((x) => x.id === l.financing) || {}).label || l.financing; fc[lab] = (fc[lab] || 0) + 1; } });
+  const topFinancing = Object.entries(fc).sort((a, b) => b[1] - a[1])[0] || null;
+  return { invited, confirmed, noShow, attended, drives, leadCount: leads.length, offers, financing, contacts, drive, street, attendeesNoEmail, topInterests, modelCounts, topModel, topFinancing };
 };
 
 // generované sekce reportu — pravidla z prahů (offline). Vrací pole vět.
@@ -4305,8 +4384,11 @@ const reportInsights = (c) => {
   }
   if (b.realGross > b.expGross && b.expGross > 0) out.push(`Rozpočet překročen o ${czk(b.realGross - b.expGross)}.`);
   if (m.leadCount > 0 && m.offers / m.leadCount > REPORT_THRESHOLDS.offerStrong) out.push(`Silný obchodní zájem — ${Math.round((m.offers / m.leadCount) * 100)} % leadů chce nabídku.`);
+  // obchodní poznatky (data-driven)
+  if (m.topModel) out.push(`Největší zájem o ${m.topModel[0]} (${m.topModel[1]}×).`);
+  if (m.financing > 0) out.push(`Financování řešilo ${m.financing} ${m.financing === 1 ? "zákazník" : m.financing < 5 ? "zákazníci" : "zákazníků"}${m.topFinancing ? ` — nejčastěji ${m.topFinancing[0]}` : ""}.`);
+  if (m.drives > 0) out.push(`Nejvíce poptávek u testovacích jízd — odjeto ${m.drives}.`);
   if (m.street > 0) out.push(`${m.street} ${m.street === 1 ? "host přišel" : "hostů přišlo"} „z ulice" — akce zaujala i nepozvané.`);
-  if (m.drives > 0) out.push(`Odjeto ${m.drives} testovacích jízd.`);
   return out;
 };
 
@@ -4315,6 +4397,9 @@ const reportRecommendations = (c) => {
   const q = leadQuality(c);
   const b = budgetTotals(c.budget?.items);
   const out = [];
+  // vysvětlitelné doporučení kapacity vozů (s daty za „proč")
+  if (m.topModel && m.topModel[1] >= 2) out.push(`Navýšit dostupnost ${m.topModel[0]} na příští akci — největší zájem (${m.topModel[1]} ${m.topModel[1] === 1 ? "zájemce" : m.topModel[1] < 5 ? "zájemci" : "zájemců"}).`);
+  if (m.financing >= 2) out.push(`Připravit více informací o financování — řešilo ho ${m.financing} zákazníků${m.topFinancing ? ` (nejvíc ${m.topFinancing[0]})` : ""}.`);
   if (m.invited > 0 && m.confirmed / m.invited < REPORT_THRESHOLDS.rsvpLow) out.push("Nízké RSVP — posílat pozvánky a připomínky dřív a s jasnějším CTA.");
   if (q.total > 0 && q.noPhone.length / q.total > REPORT_THRESHOLDS.noPhoneHigh) out.push("Chybí telefon u části leadů — vyžadovat telefonní číslo už při zápisu na akci.");
   if (m.confirmed + m.noShow > 0 && m.noShow / (m.confirmed + m.noShow) > REPORT_THRESHOLDS.noShowHigh) out.push("Vysoká absence — zavolat potvrzeným den předem a připomenout účast.");
@@ -4324,11 +4409,34 @@ const reportRecommendations = (c) => {
   return out;
 };
 
+// v0.25: metadata pro archiv — datově připraveno na budoucí trendy (účast, leady, zájem o modely)
+const buildArchiveMeta = (c) => {
+  const m = eventMetrics(c);
+  const insights = reportInsights(c);
+  const recs = reportRecommendations(c);
+  return {
+    year:              c.date ? Number(String(c.date).slice(0, 4)) : null,
+    type:              c.activityType || null,
+    topModel:          m.topModel ? m.topModel[0] : null,
+    modelCounts:       m.modelCounts,          // [ [model, n], ... ] pro budoucí trend zájmu o modely
+    leadCount:         m.leadCount,
+    attendees:         m.confirmed,
+    drives:            m.drives,
+    topInsight:        insights[0] || null,
+    topRecommendation: recs[0] || null,
+  };
+};
+
+// snapshot uzavření je NEMĚNNÝ: report, poznatky, doporučení i obchodní souhrn se zmrazí k okamžiku uzavření.
+// I kdyby se v budoucnu změnil algoritmus, uzavřená akce zůstane stejná.
 const buildFinalReport = (c) => ({
   at: new Date().toISOString(),
   metrics: eventMetrics(c),
   insights: reportInsights(c),
   recommendations: reportRecommendations(c),
+  leads: JSON.parse(JSON.stringify(c.leads || [])),   // zmrazený obchodní souhrn
+  needingAction: leadsNeedingAction(c),
+  archiveMeta: buildArchiveMeta(c),
 });
 
 function EventStatusBadge({ c, showPhase }) {
@@ -4343,32 +4451,116 @@ function EventStatusBadge({ c, showPhase }) {
 }
 
 function ReportInsights({ c }) {
-  const m = eventMetrics(c);
+  // snapshot má přednost — uzavřená akce se nikdy nepřegeneruje jinak
+  const leads = c.finalReport?.leads || c.leads || [];
+  const cSnap = { ...c, leads };
+  const m   = c.finalReport?.metrics || eventMetrics(cSnap);
+  const na  = c.finalReport?.needingAction || leadsNeedingAction(cSnap);
+  const q   = leadQuality(cSnap);
   const insights = c.finalReport?.insights || reportInsights(c);
   const recs = c.finalReport?.recommendations || reportRecommendations(c);
+  const { nameId, emailId, phoneId } = c.fieldMeta || {};
+  const has = (v) => !!(v && String(v).trim());
+  const attend = (c.parts || []).filter((p) => ["potvrzen", "prihlasen"].includes(p.state));
+  const noShow = (c.parts || []).filter((p) => p.state === "nedostavil");
+  const noContact = attend.filter((p) => !has(p.data?.[phoneId]) && !has(p.data?.[emailId]));
+  const streetGuests = (c.parts || []).filter((p) => p.fromStreet);
+  const guestLeads = leads.filter((l) => l.isGuest);
+
   const cell = (n, l, col) => (
     <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 9, padding: "10px 12px" }}>
       <div style={{ fontSize: 18, fontWeight: 700, color: col || T.cream }}>{n}</div>
       <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{l}</div>
     </div>
   );
+  const chip = (n, l, col) => (
+    <div style={{ background: `${col}14`, border: `1px solid ${col}55`, borderRadius: 9, padding: "8px 14px", minWidth: 96 }}>
+      <div style={{ fontSize: 20, fontWeight: 700, color: col }}>{n}</div>
+      <div style={{ fontSize: 11, color: T.textDim }}>{l}</div>
+    </div>
+  );
+  const oppList = (title, items, color, icon) => (
+    <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 14px" }}>
+      <div style={{ fontSize: 12.5, fontWeight: 600, color, marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+        <span>{icon} {title}</span><span>{items.length}</span>
+      </div>
+      {items.length === 0 ? <div style={{ fontSize: 11.5, color: T.textDim }}>—</div>
+        : items.slice(0, 12).map((t, i) => <div key={i} style={{ fontSize: 11.5, color: T.creamDim, lineHeight: 1.5 }}>· {t}</div>)}
+      {items.length > 12 && <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>… a další {items.length - 12}</div>}
+    </div>
+  );
+
   return (
     <div style={{ marginBottom: 24 }}>
       {c.finalReport && (
-        <div style={{ fontSize: 11.5, color: T.brass, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-          🔒 Finální report zmrazen {fmt(String(c.closedAt || c.finalReport.at || "").slice(0, 10))}.
+        <div style={{ fontSize: 11.5, color: T.brass, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+          🔒 Finální report zmrazen {fmt(String(c.closedAt || c.finalReport.at || "").slice(0, 10))} — neměnný snapshot.
         </div>
       )}
+
+      {/* 1) OBCHODNÍ SOUHRN — první sekce reportu */}
+      <div style={{ fontSize: 15, fontWeight: 700, color: T.cream, marginBottom: 4 }}>Obchodní souhrn</div>
+      <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>Kdo projevil zájem a na koho je třeba reagovat. Detaily akce jsou níže.</div>
+
+      {/* priorita: vyžaduje akci */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600, color: T.cream, marginBottom: 8 }}>🎯 Vyžaduje akci ({na.total} {na.total === 1 ? "lead" : "leadů"})</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {chip(na.offer.length,     "chce nabídku",   T.greenLite)}
+          {chip(na.financing.length, "financování",    T.brass)}
+          {chip(na.contact.length,   "chce kontakt",   T.info)}
+          {chip(na.drive.length,     "chce další jízdu", T.purple)}
+        </div>
+      </div>
+
+      {/* předání leadů */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16 }}>
+        {cell(q.total, "leadů celkem", T.brass)}
+        {cell(q.assigned.length, "předáno obchodníkům", T.greenLite)}
+        {cell(q.noSeller.length, "bez obchodníka", q.noSeller.length ? T.danger : T.textDim)}
+      </div>
+
+      {/* tabulka obchodního souhrnu */}
+      <div style={{ marginBottom: 22 }}>
+        {leads.length === 0 ? (
+          <div style={{ fontSize: 12, color: T.textDim }}>Žádné leady.</div>
+        ) : (
+          <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ background: T.panel2 }}>
+                {["Zákazník", "Model / zájem", "Nabídka", "Kontakt", "Další jízda", "Financování", "Obchodník"].map((h) => <th key={h} style={{ textAlign: "left", padding: "7px 10px", color: T.textDim, fontWeight: 500, fontSize: 10.5 }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {leads.map((l) => {
+                  const seller = USERS_SEED.find((u) => u.id === l.assignedTo);
+                  const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest);
+                  const fin = FINANCING.find((f) => f.id === l.financing);
+                  return (
+                    <tr key={l.id} style={{ borderTop: `1px solid ${T.line}` }}>
+                      <td style={{ padding: "7px 10px", color: T.cream }}>{l.name || "—"}{l.phone ? <span style={{ color: T.textDim }}> · {l.phone}</span> : null}</td>
+                      <td style={{ padding: "7px 10px", color: T.creamDim }}>{l.model || "—"}{lvl ? ` · ${lvl.label}` : ""}</td>
+                      <td style={{ padding: "7px 10px", color: l.wantsOffer === true ? T.greenLite : T.textDim }}>{l.wantsOffer === true ? "ANO" : l.wantsOffer === false ? "ne" : "—"}</td>
+                      <td style={{ padding: "7px 10px", color: l.wantsContact === true ? T.greenLite : T.textDim }}>{l.wantsContact === true ? "ANO" : "—"}</td>
+                      <td style={{ padding: "7px 10px", color: l.wantsDrive === true ? T.greenLite : T.textDim }}>{l.wantsDrive === true ? "ANO" : "—"}</td>
+                      <td style={{ padding: "7px 10px", color: T.creamDim }}>{fin ? fin.label : "—"}</td>
+                      <td style={{ padding: "7px 10px", color: seller ? T.info : T.warn }}>{seller ? seller.name : "nepřiřazeno"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* 2) statistiky akce */}
+      <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 8 }}>Statistiky akce</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 10, marginBottom: 18 }}>
         {cell(m.invited, "pozvaných")}
         {cell(m.confirmed, "potvrzených", T.greenLite)}
         {cell(m.attended, "účastníků", T.greenLite)}
         {cell(m.noShow, "nedostavili se", m.noShow ? T.warn : T.textDim)}
         {cell(m.drives, "testovacích jízd", T.info)}
-        {cell(m.leadCount, "leadů", T.brass)}
-        {cell(m.offers, "chce nabídku", T.brass)}
-        {cell(m.financing, "financování")}
-        {cell(m.contacts, "chce kontakt")}
         {cell(m.street, "hostů z ulice", T.info)}
       </div>
       {m.topInterests.length > 0 && (
@@ -4381,37 +4573,28 @@ function ReportInsights({ c }) {
           </div>
         </div>
       )}
-      <div style={{ marginBottom: 18 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 8 }}>Obchodní souhrn ({(c.leads || []).length} leadů)</div>
-        {(c.leads || []).length === 0 ? (
-          <div style={{ fontSize: 12, color: T.textDim }}>Žádné leady.</div>
-        ) : (
-          <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead><tr style={{ background: T.panel2 }}>
-                {["Zákazník", "Model / zájem", "Nabídka", "Kontakt", "Financování", "Obchodník"].map((h) => <th key={h} style={{ textAlign: "left", padding: "7px 10px", color: T.textDim, fontWeight: 500, fontSize: 10.5 }}>{h}</th>)}
-              </tr></thead>
-              <tbody>
-                {(c.leads || []).map((l) => {
-                  const seller = USERS_SEED.find((u) => u.id === l.assignedTo);
-                  const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest);
-                  const fin = FINANCING.find((f) => f.id === l.financing);
-                  return (
-                    <tr key={l.id} style={{ borderTop: `1px solid ${T.line}` }}>
-                      <td style={{ padding: "7px 10px", color: T.cream }}>{l.name || "—"}{l.phone ? <span style={{ color: T.textDim }}> · {l.phone}</span> : null}</td>
-                      <td style={{ padding: "7px 10px", color: T.creamDim }}>{l.model || "—"}{lvl ? ` · ${lvl.label}` : ""}</td>
-                      <td style={{ padding: "7px 10px", color: l.wantsOffer === true ? T.greenLite : T.textDim }}>{l.wantsOffer === true ? "ANO" : l.wantsOffer === false ? "ne" : "—"}</td>
-                      <td style={{ padding: "7px 10px", color: l.wantsContact === true ? T.greenLite : T.textDim }}>{l.wantsContact === true ? "ANO" : "—"}</td>
-                      <td style={{ padding: "7px 10px", color: T.creamDim }}>{fin ? fin.label : "—"}</td>
-                      <td style={{ padding: "7px 10px", color: seller ? T.info : T.warn }}>{seller ? seller.name : "nepřiřazeno"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+
+      {/* 3) nevyužité + neočekávané příležitosti */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 18 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.warn, marginBottom: 8 }}>⚠ Nevyužité příležitosti</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {oppList("Potvrzení, kteří nedorazili", noShow.map((p) => p.data?.[nameId] || "—"), T.warn, "🚫")}
+            {oppList("Zákazníci bez kontaktu", noContact.map((p) => p.data?.[nameId] || "—"), T.warn, "📵")}
+            {oppList("Leady bez obchodníka", q.noSeller.map((l) => l.name || "—"), T.danger, "❗")}
+            {oppList("Bez zadaného zájmu", q.noInterest.map((l) => l.name || "—"), T.textDim, "❔")}
           </div>
-        )}
+        </div>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.info, marginBottom: 8 }}>✨ Neočekávané příležitosti</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {oppList("Hosté z ulice / neočekávaní účastníci", streetGuests.map((p) => p.data?.[nameId] || "—"), T.info, "🚶")}
+            {oppList("Nové kontakty (host z venku)", guestLeads.map((l) => `${l.name || "—"}${l.model ? " · " + l.model : ""}`), T.info, "🆕")}
+          </div>
+        </div>
       </div>
+
+      {/* 4) poznatky + doporučení */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 11, padding: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 8 }}>📌 Poznatky z akce</div>
@@ -4429,6 +4612,7 @@ function ReportInsights({ c }) {
 function CloseEventModal({ c, onClose, onConfirm }) {
   const q = leadQuality(c);
   const m = eventMetrics(c);
+  const na = leadsNeedingAction(c);
   const surveyDone = !!(c.survey?.responses?.length) || !!c.surveyNA;
   const summariesDone = (c.leads || []).length === 0 || (c.leads || []).every((l) => l.wantsOffer != null || l.wantsContact != null || (l.note && l.note.trim()));
   const pending = (c.parts || []).filter((p) => ["ceka", "schvaleno"].includes(p.state)).length;
@@ -4437,6 +4621,7 @@ function CloseEventModal({ c, onClose, onConfirm }) {
     { ok: q.noSeller.length === 0, label: "Všechny leady předány obchodníkovi", detail: q.noSeller.length ? `${q.noSeller.length} bez obchodníka` : "hotovo" },
     { ok: q.noPhone.length === 0,  label: "Kontaktní údaje ověřeny (telefon)",  detail: q.noPhone.length ? `${q.noPhone.length} bez telefonu` : "hotovo" },
     { ok: summariesDone,           label: "Obchodní souhrny zkontrolovány",     detail: summariesDone ? "hotovo" : "část leadů bez souhrnu" },
+    { ok: q.noInterest.length === 0, label: "U všech leadů zadán zájem",          detail: q.noInterest.length ? `${q.noInterest.length} bez zájmu` : "hotovo" },
     { ok: surveyDone,              label: "Dotazníky ukončeny",                 detail: surveyDone ? "hotovo" : "bez odpovědí" },
   ];
   const allOk = checks.every((x) => x.ok);
@@ -4459,6 +4644,18 @@ function CloseEventModal({ c, onClose, onConfirm }) {
       <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 14, lineHeight: 1.5 }}>
         Uzavření akci zamkne pro čtení a vytvoří finální report. Obchodní práce tím nekončí — leady už měly být předány. Uzavření jen potvrzuje, že data jsou kompletní a připravená k archivaci.
       </div>
+      {/* v0.25: nejdůležitější obchodní informace akce */}
+      <div style={{ background: `${T.brass}12`, border: `1px solid ${T.brass}55`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.brass, marginBottom: 8 }}>🎯 Leady vyžadující akci ({na.total})</div>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+          {[["chce nabídku", na.offer.length, T.greenLite], ["financování", na.financing.length, T.brass], ["chce kontakt", na.contact.length, T.info], ["chce další jízdu", na.drive.length, T.purple]].map(([l, n, col]) => (
+            <div key={l} style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: col }}>{n}</div>
+              <div style={{ fontSize: 11, color: T.textDim }}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
       <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 8 }}>Kontrola před uzavřením</div>
       <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
         {checks.map((x, i) => (
@@ -4470,10 +4667,17 @@ function CloseEventModal({ c, onClose, onConfirm }) {
         ))}
       </div>
       <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 6 }}>Kvalita leadů ({q.total})</div>
+      {q.noSeller.length > 0 && (
+        <div style={{ background: `${T.danger}14`, border: `1px solid ${T.danger}66`, borderRadius: 10, padding: "8px 14px", marginBottom: 10 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: T.danger }}>❗ Nejvyšší priorita — {q.noSeller.length} {q.noSeller.length === 1 ? "lead" : "leadů"} bez obchodníka</div>
+          <div style={{ fontSize: 11.5, color: T.creamDim, marginTop: 3 }}>Bez přiřazení za lead nikdo neodpovídá a nikdo ho nebude řešit. Přiřaďte je před uzavřením.</div>
+        </div>
+      )}
       <div style={{ background: T.panel, border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 14px", marginBottom: 16 }}>
         {row("Přiřazeno obchodníkovi", q.assigned, T.greenLite)}
-        {row("Bez obchodníka", q.noSeller, T.warn)}
+        {row("Bez obchodníka", q.noSeller, T.danger)}
         {row("Bez telefonu", q.noPhone, T.warn)}
+        {row("Bez zadaného zájmu", q.noInterest, T.warn)}
         {row("Bez poznámky", q.noNote, T.textDim)}
         {m.attendeesNoEmail > 0 && <div style={{ fontSize: 11.5, color: T.textDim, paddingTop: 6 }}>Účastníků bez e-mailu: {m.attendeesNoEmail} (dotazník jim nešel poslat)</div>}
       </div>
@@ -4510,6 +4714,7 @@ function ReportTab({ c }) {
       <style>{`@media print { .no-print { display: none !important; } }`}</style>
       <div className="no-print" style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
         <Btn kind="ghost" icon={Download} onClick={() => exportBudgetExcel(c)}>Export Excel</Btn>
+        <Btn kind="ghost" icon={ClipboardList} onClick={() => exportLeadSummary(c)}>Export obchodního souhrnu</Btn>
       <Btn kind="ghost" icon={Printer} onClick={() => exportBudgetPdf(c)}>PDF s grafem 🥧</Btn>
       <Btn kind="ghost" icon={Printer} onClick={() => window.print()}>Tisk / PDF</Btn>
         <Btn kind="ghost" icon={Download} onClick={() => {
@@ -5540,6 +5745,47 @@ function HcpModal({ onClose, onSave }) {
 /* ════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════ */
+// v0.25: samostatný export obchodního souhrnu — jednoduchý přehled pro přepis do CRM (ne modul)
+function exportLeadSummary(c) {
+  const leads = c.finalReport?.leads || c.leads || [];
+  const rowsHtml = leads.map((l) => {
+    const seller = USERS_SEED.find((u) => u.id === l.assignedTo);
+    const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest);
+    const fin = FINANCING.find((x) => x.id === l.financing);
+    return `<tr>
+      <td>${(l.name || "—")}${l.phone ? " · " + l.phone : ""}</td>
+      <td>${(l.model || "—")}${lvl ? " (" + lvl.label + ")" : ""}</td>
+      <td>${l.wantsOffer === true ? "ANO" : l.wantsOffer === false ? "ne" : "—"}</td>
+      <td>${fin ? fin.label : "—"}</td>
+      <td>${l.wantsContact === true ? "ANO" : "—"}</td>
+      <td>${l.wantsDrive === true ? "ANO" : "—"}</td>
+      <td>${seller ? seller.name : "NEPŘIŘAZENO"}</td>
+    </tr>`;
+  }).join("");
+  const w = window.open("", "_blank");
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Obchodní souhrn — ${c.name}</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; color: #1a2a1a; }
+  .header { background: #1a5235; color: #f3efe3; padding: 20px 28px; }
+  .header h1 { margin: 0; font-size: 20px; } .header .sub { font-size: 12px; opacity: .8; margin-top: 3px; }
+  .body { padding: 22px 28px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #1a5235; color: #f3efe3; padding: 7px 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  td { padding: 7px 10px; border-bottom: 1px solid #e6e2d8; font-size: 12.5px; }
+  tr:nth-child(even) td { background: #faf8f3; }
+  .footer { margin-top: 22px; font-size: 11px; color: #8a9a8a; }
+  @media print { body { -webkit-print-color-adjust: exact; } }
+</style></head><body>
+<div class="header"><h1>Obchodní souhrn — ${c.name}</h1><div class="sub">${c.place || ""} · ${c.date ? new Date(c.date).toLocaleDateString("cs-CZ") : ""} · ${leads.length} leadů</div></div>
+<div class="body">
+  <table><thead><tr><th>Zákazník</th><th>Zájem</th><th>Nabídka</th><th>Financování</th><th>Další kontakt</th><th>Další jízda</th><th>Obchodník</th></tr></thead>
+  <tbody>${rowsHtml || '<tr><td colspan="7">Žádné leady.</td></tr>'}</tbody></table>
+  <div class="footer">S&W automobily · přehled pro přepis do CRM · ${new Date().toLocaleDateString("cs-CZ")}</div>
+</div></body></html>`);
+  w.document.close();
+  setTimeout(() => w.print(), 400);
+}
+
 function exportExcel(c) {
   // Jednoduchý HTML tabulka export jako .xls (otevře se v Excelu)
   const nameId  = c.fieldMeta?.nameId;
