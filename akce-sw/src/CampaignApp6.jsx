@@ -13,12 +13,22 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from "recharts";
 
-const APP_VERSION = "0.28";
-const APP_BUILD = "2026-07-11 12:49";
+const APP_VERSION = "0.29";
+const APP_BUILD = "2026-07-11 13:18";
+const SCHEMA_VERSION = 1;   // v0.29: verze Firestore schématu (Event + Snapshot) pro budoucí migrace
 
 /* ── Changelog / historie verzí ──
    Novou verzi přidávej NAHORU. items = pole řetězců. */
 const CHANGELOG = [
+  {
+    version: "0.29",
+    date: "2026-07-11",
+    items: [
+      "Firebase F0 groundwork (bez závislosti na Firebase SDK, lokální chování beze změny): SCHEMA_VERSION, schemaVersion u Event i Snapshotu, DATA_BACKEND flag.",
+      "compose() — jediný zdroj pravdy pro skládání event + participants + leads + reservations + snapshot do objektu c.",
+      "Firebase SDK větev store (F1–F3) se přidává samostatně až po npm install firebase.",
+    ],
+  },
   {
     version: "0.28",
     date: "2026-07-11",
@@ -591,7 +601,7 @@ const baseFields = () => [
    ══════════════════════════════════════════════════════════════ */
 const MODELS = {
   Event: {
-    required: ["id", "name", "date", "place", "activityType", "capacity", "approvers", "parts", "leads", "status"],
+    required: ["id", "schemaVersion", "name", "date", "place", "activityType", "capacity", "approvers", "parts", "leads", "status"],
     derived:  ["eventStatus", "eventPhase", "used"],          // počítá se z date + dat, neukládat
     snapshot: ["finalReport"],                                  // viz ReportSnapshot
     optional: ["departments", "reminders", "inviteMode", "reservations", "budget", "equipment", "team", "survey", "closedAt", "closedBy"],
@@ -613,8 +623,8 @@ const MODELS = {
     note: "vázané na Participant přes partId; jen u testovacích jízd.",
   },
   ReportSnapshot: {   // finalReport — CELÉ je S (neměnné po uzavření)
-    required: ["at", "builtWith", "metrics", "insights", "recommendations", "leads", "needingAction", "archiveMeta"],
-    note: "builtWith = verze algoritmu. leads = zmrazená kopie. Nikdy se nepřepočítává.",
+    required: ["at", "schemaVersion", "builtWith", "metrics", "insights", "recommendations", "leads", "needingAction", "opportunities", "archiveMeta"],
+    note: "schemaVersion = verze schématu, builtWith = verze algoritmu. leads = zmrazená kopie. Nikdy se nepřepočítává.",
   },
   ArchiveMeta: {
     required: ["year", "type", "leadCount", "attendees", "drives"],
@@ -992,13 +1002,31 @@ const CORP_FONT_CSS = `
      updateCampaign(id,fn)→ transakce/updateDoc nad events/{id}
      addCampaign(c)       → setDoc(doc(db,"events",c.id), c)
    ══════════════════════════════════════════════════════════════ */
+const DATA_BACKEND = "local";   // "local" | "firebase" — rollback páka (F0). Firebase větev viz firebaseStore modul.
+
+/*  compose() — JEDINÝ zdroj pravdy pro skládání objektu c z Firestore částí.
+    Event dokument NEobsahuje parts/leads/reservations/finalReport (jsou to podkolekce / snapshot doc).
+    compose je čistá funkce: stejný vstup → stejný c. Pokud vznikne nekonzistence Firestore↔UI, hledá se TADY. */
+const compose = (event, { participants = [], leads = [], reservations = [], snapshot = null } = {}) => ({
+  ...event,                                   // top-level pole akce
+  parts:        participants,                 // podkolekce → c.parts
+  leads:        leads,                        // podkolekce → c.leads
+  reservations: reservations,                 // podkolekce → c.reservations
+  finalReport:  snapshot ?? event.finalReport ?? null,   // snapshots/final → c.finalReport
+  schemaVersion: event.schemaVersion ?? SCHEMA_VERSION,
+});
+
 function useCampaignStore() {
+  // LOKÁLNÍ backend (DATA_BACKEND="local"): chová se přesně jako dřív, žádná změna.
   const [campaigns, setCampaigns] = useState(seed);
   const loadCampaigns      = () => campaigns;
   const subscribeCampaigns = (cb) => { cb(campaigns); return () => {}; };
   const updateCampaign     = (id, fn) => setCampaigns((cs) => cs.map((c) => c.id === id ? fn(c) : c));
-  const addCampaign        = (c) => setCampaigns((cs) => [...cs, c]);
-  return { campaigns, loadCampaigns, subscribeCampaigns, updateCampaign, addCampaign };
+  const addCampaign        = (c) => setCampaigns((cs) => [...cs, { schemaVersion: SCHEMA_VERSION, ...c }]);
+  // FIREBASE backend (DATA_BACKEND="firebase"): stejné rozhraní, implementace ve firebaseStore (F1–F3).
+  //   subscribeCampaigns → onSnapshot(events+podkolekce) → compose() → cb
+  //   updateCampaign     → applyWrite(id, fn) (diff, F4)
+  return { campaigns, loadCampaigns, subscribeCampaigns, updateCampaign, addCampaign, compose };
 }
 
 export default function App() {
@@ -4592,6 +4620,7 @@ const buildOpportunities = (c) => {
 
 const buildFinalReport = (c) => ({
   at: new Date().toISOString(),
+  schemaVersion: SCHEMA_VERSION, // v0.29: podle jakého schématu snapshot vznikl
   builtWith: APP_VERSION,        // v0.27: verze algoritmu, který snapshot vytvořil — nikdy se nepřepočítá
   metrics: eventMetrics(c),
   insights: reportInsights(c),
