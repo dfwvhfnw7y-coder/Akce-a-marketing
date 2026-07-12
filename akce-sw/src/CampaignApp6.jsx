@@ -995,6 +995,21 @@ function FieldInput({ field, value, onChange, invalid }) {
   return <input type={tm[field.type] || "text"} value={value || ""} onChange={onChange} style={base} />;
 }
 
+/* BlurInput / BlurTextarea — lokalni state behem psani, commit az na onBlur (PERF-001 + BUG-002). */
+function BlurInput({ value = "", onCommit, as = "input", ...props }) {
+  const [local, setLocal] = useState(value ?? "");
+  useEffect(() => { setLocal(value ?? ""); }, [value]);
+  const Tag = as;
+  return (
+    <Tag
+      {...props}
+      value={local}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => { if (local !== value) onCommit(local); }}
+    />
+  );
+}
+
 /* ════════════════════════════════════════
    MAIN APP
 ════════════════════════════════════════ */
@@ -2735,7 +2750,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                       }
                     </div>
                     <div style={{ flex: 1, minWidth: 160 }}><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>POZNÁMKA</div>
-                      <input value={p.note} placeholder="poznámka…" onChange={e => setNote(p.id, e.target.value)} style={{ ...inputStyle, padding: "3px 8px", fontSize: 12, width: "100%" }} readOnly={!canEditThis} />
+                      <BlurInput value={p.note} placeholder="poznámka…" onCommit={(v) => setNote(p.id, v)} style={{ ...inputStyle, padding: "3px 8px", fontSize: 12, width: "100%" }} readOnly={!canEditThis} />
                     </div>
                   </div>
                   <div style={{ background: T.bg, border: `1px solid ${T.info}33`, borderRadius: 10, padding: 14 }}>
@@ -2773,7 +2788,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                       <div>
                         <label style={lbl}>Důvod pozvání / popis vztahu</label>
                         {canEditThis
-                          ? <textarea value={crm.reason || ""} onChange={(e) => setCrm(p.id, { ...crm, reason: e.target.value })} rows={3} style={{ ...inputStyle, resize: "vertical", fontSize: 12 }} placeholder="Např. Velkoodběratel, loni koupil GLE a GLS…" />
+                          ? <BlurInput as="textarea" value={crm.reason || ""} onCommit={(v) => setCrm(p.id, { ...crm, reason: v })} rows={3} style={{ ...inputStyle, resize: "vertical", fontSize: 12 }} placeholder="Např. Velkoodběratel, loni koupil GLE a GLS…" />
                           : <div style={{ fontSize: 12.5, color: T.creamDim, lineHeight: 1.7 }}>{crm.reason || "—"}</div>
                         }
                       </div>
@@ -3962,7 +3977,23 @@ function UsersModal({ users, onClose, onUpdate }) {
                 <span style={{ fontSize: 11.5, color: roleMeta?.id === "admin" ? T.brass : roleMeta?.id === "approver" ? T.purple : T.info }}>{roleMeta?.label}</span>
               )}
               {isEditing ? (
-                <input value={u.position} onChange={(e) => updateUser(u.id, { position: e.target.value })} style={{ ...inputStyle, padding: "4px 7px", fontSize: 11.5 }} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  <input value={u.position} onChange={(e) => updateUser(u.id, { position: e.target.value })} placeholder="Pozice ve firmě" style={{ ...inputStyle, padding: "4px 7px", fontSize: 11.5 }} />
+                  <input value={u.dept || ""} onChange={(e) => updateUser(u.id, { dept: e.target.value })} placeholder="Oddělení (např. Management, Marketing)" style={{ ...inputStyle, padding: "4px 7px", fontSize: 11 }} />
+                  {/* BUG-003: divize (depts) editovatelna i v uprave uctu */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {EVENT_DEPTS.map(d => {
+                      const cur = u.depts || (u.dept ? [u.dept] : []);
+                      const on = cur.includes(d.id);
+                      return (
+                        <label key={d.id} title={d.label} style={{ display: "flex", alignItems: "center", gap: 3, padding: "2px 6px", background: on ? `${T.brass}18` : T.bg, border: `1px solid ${on ? T.brass : T.line}`, borderRadius: 6, cursor: "pointer", fontSize: 10.5, color: on ? T.cream : T.textDim }}>
+                          <input type="checkbox" checked={on} onChange={(e) => { const base = u.depts || (u.dept ? [u.dept] : []); updateUser(u.id, { depts: e.target.checked ? [...base, d.id] : base.filter(x => x !== d.id) }); }} />
+                          {d.id}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
               ) : (
                 <span style={{ fontSize: 11.5, color: T.textDim }}>{u.position}{deptOf(u) ? <span style={{ color: T.brass, marginLeft: 4, fontSize: 10.5 }}>| {deptOf(u)}</span> : ""}</span>
               )}
@@ -4568,7 +4599,7 @@ function SurveyTab({ c, canEdit, onUpdate }) {
                         <meta.icon size={10} />{meta.label}
                       </span>
                       {canEdit
-                        ? <input value={f.label} placeholder="Text otázky…" onChange={(e) => updField(f.id, { label: e.target.value })} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12.5 }} />
+                        ? <BlurInput value={f.label} placeholder="Text otázky…" onCommit={(v) => updField(f.id, { label: v })} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12.5 }} />
                         : <span style={{ flex: 1, fontSize: 12.5 }}>{f.label}</span>
                       }
                       {canEdit && (
@@ -4581,7 +4612,7 @@ function SurveyTab({ c, canEdit, onUpdate }) {
                       )}
                     </div>
                     {f.type === "select" && canEdit && (
-                      <input value={f.options} placeholder="Možnosti oddělené čárkou (⭐⭐⭐⭐⭐ Výborné, ⭐⭐⭐⭐ Dobré…)" onChange={(e) => updField(f.id, { options: e.target.value })} style={{ ...inputStyle, padding: "4px 7px", fontSize: 11.5, marginTop: 7 }} />
+                      <BlurInput value={f.options} placeholder="Možnosti oddělené čárkou (⭐⭐⭐⭐⭐ Výborné, ⭐⭐⭐⭐ Dobré…)" onCommit={(v) => updField(f.id, { options: v })} style={{ ...inputStyle, padding: "4px 7px", fontSize: 11.5, marginTop: 7 }} />
                     )}
                   </div>
                 );
