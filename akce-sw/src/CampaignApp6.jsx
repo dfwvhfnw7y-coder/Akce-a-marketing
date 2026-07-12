@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { createFirebaseStore } from "./firebaseStore";
 import {
   Plus, Trash2, Flag, ArrowLeft, AlertTriangle, ShieldCheck, EyeOff, Eye, UserPlus, X,
-  TrendingUp, Layers, Lock, Type, AlignLeft, CalendarDays, AtSign, Phone, Hash, List,
+  TrendingUp, Layers, Lock, Type, AlignLeft, CalendarDays, AtSign, Phone, Hash, List, Star,
   Check, Settings, Download, PieChart as PieIcon, ListOrdered, Clock, GripVertical,
   Send, Bell, UserCheck, HelpCircle, Users, Wallet, BarChart3, FolderOpen, Mail, Printer,
   ClipboardList, MessageSquare, Zap, Mail as MailIcon, Image, Link, AlignLeft as AlignLeftIcon, Bold, Italic, Underline as UnderlineIcon, Minus,
@@ -338,7 +338,8 @@ const FIELD_TYPES = [
   { id: "email",    label: "Email",       icon: AtSign },
   { id: "phone",    label: "Telefon",     icon: Phone },
   { id: "number",   label: "Číslo",       icon: Hash },
-  { id: "select",   label: "Výběr",       icon: List },
+  { id: "select",   label: "Výběr",       icon: List, hint: "Vlastní odpovědi definované uživatelem (Ano/Ne, model vozu, zdroj pozvánky, přijedete příště? apod.)" },
+  { id: "rating",   label: "⭐ Hodnocení", icon: Star, hint: "Pevná škála spokojenosti 1–5 hvězdiček (catering, organizace, program apod.)" },
 ];
 
 /* ── Správa uživatelů ── */
@@ -989,6 +990,18 @@ function FieldInput({ field, value, onChange, invalid }) {
         <option value="">— vyberte —</option>
         {opts.map((o, i) => <option key={i} value={o}>{o}</option>)}
       </select>
+    );
+  }
+  if (field.type === "rating") {
+    const cur = Number(value) || 0;
+    return (
+      <div style={{ display: "flex", gap: 4 }}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} type="button" onClick={() => onChange({ target: { value: n } })} title={`${n} z 5`} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, lineHeight: 1, padding: 0, color: n <= cur ? T.brass : T.line }}>
+            {n <= cur ? "★" : "☆"}
+          </button>
+        ))}
+      </div>
     );
   }
   const tm = { email: "email", phone: "tel", date: "date", number: "number" };
@@ -4580,13 +4593,18 @@ function SurveyTab({ c, canEdit, onUpdate }) {
       {view === "builder" && (
         <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 20 }}>
           <div>
-            <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 12 }}>Přidejte otázky — stejný builder jako pole formuláře. Doporučujeme hodnocení (Výběr) + otevřené otázky (Dlouhý text).</div>
+            <div style={{ fontSize: 12.5, color: T.textDim, marginBottom: 12 }}>Přidejte otázky — stejný builder jako pole formuláře. Doporučujeme ⭐ Hodnocení + otevřené otázky (Dlouhý text).</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
               {FIELD_TYPES.map((ft) => (
-                <button key={ft.id} onClick={() => canEdit && addField(ft.id)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 9px", background: T.bg, border: `1px solid ${T.line}`, borderRadius: 7, color: canEdit ? T.cream : T.textDim, fontSize: 12, cursor: canEdit ? "pointer" : "default", fontFamily: "inherit" }}>
+                <button key={ft.id} title={ft.hint} onClick={() => canEdit && addField(ft.id)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 9px", background: T.bg, border: `1px solid ${T.line}`, borderRadius: 7, color: canEdit ? T.cream : T.textDim, fontSize: 12, cursor: canEdit ? "pointer" : "default", fontFamily: "inherit" }}>
                   <ft.icon size={12} color={T.brass} />{ft.label}<Plus size={11} color={T.textDim} />
                 </button>
               ))}
+            </div>
+            {/* POST-F4-008: viditelná nápověda k typům otázek (funguje i na iPadu, kde není hover) */}
+            <div style={{ fontSize: 11, color: T.textDim, lineHeight: 1.65, marginBottom: 14, background: T.bg, border: `1px solid ${T.line}`, borderRadius: 8, padding: "9px 11px" }}>
+              <div><b style={{ color: T.brass }}>⭐ Hodnocení</b> — pevná škála spokojenosti 1–5 hvězdiček (catering, organizace, program apod.).</div>
+              <div style={{ marginTop: 3 }}><b style={{ color: T.brass }}>Výběr</b> — vlastní odpovědi, které zadáte (Ano/Ne, model vozu, zdroj pozvánky, přijedete příště? apod.).</div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {survey.fields.map((f, i) => {
@@ -4707,7 +4725,7 @@ function SurveyTab({ c, canEdit, onUpdate }) {
               </div>
               {survey.fields.map((f) => {
                 const answers = (survey.responses || []).map(r => r.data[f.id]).filter(Boolean);
-                if (f.type === "select") {
+                if (f.type === "select" || f.type === "rating") {
                   const dist = {};
                   answers.forEach(a => { dist[a] = (dist[a]||0)+1; });
                   return (
