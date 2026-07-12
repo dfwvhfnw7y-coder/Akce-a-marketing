@@ -16,7 +16,7 @@
 
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore, collection, doc, getDoc, getDocs, onSnapshot,
+  getFirestore, initializeFirestore, collection, doc, getDoc, getDocs, onSnapshot,
   setDoc, deleteDoc, writeBatch, serverTimestamp,
 } from "firebase/firestore";
 
@@ -32,7 +32,9 @@ const firebaseConfig = {
 
 export function createFirebaseStore({ compose, SCHEMA_VERSION }) {
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  // ignoreUndefinedProperties: undefined pole se při zápisu vynechají (Firestore je jinak odmítá).
+  // Local mode se nedotkne; F3 normalizace už undefined == chybějící bere.
+  const db = initializeFirestore(app, { ignoreUndefinedProperties: true });
 
   // poslední složený stav — potřebuje ho applyWrite (before) a parity check
   const cache = new Map();
@@ -103,43 +105,108 @@ export function createFirebaseStore({ compose, SCHEMA_VERSION }) {
     cache.set(withMeta.id, withMeta);
   }
 
-  // rozloží c na event doc + podkolekce a zapíše jen změněné dokumenty
-  async function writeCampaign(after, { before = null, create = false } = {}) {
+  // rozloží c na event doc + podkolekce a zapíše jen změněné dokumenty.
+  // root = cílová top-level kolekce ("events" ostrý provoz, "events_shadow" pro F4b).
+  async function writeCampaign(after, { before = null, create = false, root = "events" } = {}) {
     const batch = writeBatch(db);
     const { parts = [], leads = [], reservations = [], finalReport = null, ...eventFields } = after;
 
     batch.set(
-      doc(db, "events", after.id),
+      doc(db, root, after.id),
       { ...stripId(eventFields), schemaVersion: after.schemaVersion ?? SCHEMA_VERSION, updatedAt: serverTimestamp() },
       { merge: true }
     );
 
-    diffById(batch, ["events", after.id, "participants"], before?.parts, parts);
-    diffById(batch, ["events", after.id, "leads"], before?.leads, leads);
-    diffById(batch, ["events", after.id, "reservations"], before?.reservations, reservations);
+    diffById(batch, [root, after.id, "participants"], before?.parts, parts);
+    diffById(batch, [root, after.id, "leads"], before?.leads, leads);
+    diffById(batch, [root, after.id, "reservations"], before?.reservations, reservations);
 
     // snapshot: zapiš JEN JEDNOU (při uzavření), nikdy nepřepisuj
     if (finalReport && !before?.finalReport) {
-      batch.set(doc(db, "events", after.id, "snapshots", "final"), finalReport);
+      batch.set(doc(db, root, after.id, "snapshots", "final"), finalReport);
     }
     await batch.commit();
 
     void create; // create/first-write nemá zvláštní větev — merge:true + diff to pokryjí
   }
 
-  // create / update / delete podle stabilního id
+  // create / update / delete podle stabilního id.
+  // Rizikovou diff logiku počítá sdílená computeDiffOps() (viz níže) —
+  // stejný zdroj používá i F4a dry-run, aby se ostrý zápis a dry-run nemohly rozejít.
   function diffById(batch, path, beforeArr = [], afterArr = []) {
-    const beforeMap = new Map((beforeArr || []).map((x) => [x.id, x]));
-    const afterMap = new Map((afterArr || []).map((x) => [x.id, x]));
-    for (const [id, item] of afterMap) {
-      const prev = beforeMap.get(id);
-      if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
-        batch.set(doc(db, ...path, id), stripId(item), { merge: false });
+    for (const op of computeDiffOps(path, beforeArr, afterArr)) {
+      if (op.op === "delete") batch.delete(doc(db, ...op.path));
+      else batch.set(doc(db, ...op.path), op.data, { merge: false });
+    }
+  }
+
+  // ── F4a: DRY-RUN — spočítá plánované operace batch BEZ commitu. ──
+  //    Žádný zápis do Firestore. Slouží k ověření diff enginu před ostrým F4.
+  //    Vrací { ops:[{op,coll,id,merge}], summary:{set,delete,byColl} }.
+  function dryRunWrite(after, before = null) {
+    const ops = [];
+    const { parts = [], leads = [], reservations = [], finalReport = null, ...eventFields } = after;
+
+    // event doc — vždy merge:true set (skalární/objektová pole akce)
+    ops.push({ op: "set", coll: "events", id: after.id, merge: true, fields: Object.keys(stripId(eventFields)).length });
+
+    ops.push(...computeDiffOps(["events", after.id, "participants"], before?.parts, parts).map(tag("participants")));
+    ops.push(...computeDiffOps(["events", after.id, "leads"], before?.leads, leads).map(tag("leads")));
+    ops.push(...computeDiffOps(["events", after.id, "reservations"], before?.reservations, reservations).map(tag("reservations")));
+
+    if (finalReport && !before?.finalReport) {
+      ops.push({ op: "set", coll: "snapshots", id: "final", merge: false, once: true });
+    }
+
+    const summary = { set: 0, delete: 0, byColl: {} };
+    for (const o of ops) {
+      summary[o.op] = (summary[o.op] || 0) + 1;
+      const b = (summary.byColl[o.coll] = summary.byColl[o.coll] || { set: 0, delete: 0 });
+      b[o.op]++;
+    }
+    return { ops, summary };
+  }
+  const tag = (coll) => (op) => ({ op: op.op, coll, id: op.id, merge: op.merge });
+
+  // ── F4b: SHADOW WRITE — reálný zápis, ale do izolované kolekce events_shadow. ──
+  //    Používá stejný writeCampaign engine jako ostrý provoz (jen jiný root),
+  //    takže parita round-tripu je smysluplná. Provozní kolekce "events" se NEDOTKNE.
+  const SHADOW_ROOT = "events_shadow";
+
+  async function shadowWrite(after, before = null) {
+    await writeCampaign(after, { before, root: SHADOW_ROOT });
+  }
+
+  // přečte a složí kampaně z events_shadow (obdoba subscribeCampaigns, jen root)
+  async function readShadowCampaigns() {
+    const out = [];
+    const snap = await getDocs(collection(db, SHADOW_ROOT));
+    for (const d of snap.docs) {
+      const event = { id: d.id, ...d.data() };
+      const [participants, leads, reservations, finalDoc] = await Promise.all([
+        readDocs([SHADOW_ROOT, d.id, "participants"]),
+        readDocs([SHADOW_ROOT, d.id, "leads"]),
+        readDocs([SHADOW_ROOT, d.id, "reservations"]),
+        getDoc(doc(db, SHADOW_ROOT, d.id, "snapshots", "final")),
+      ]);
+      out.push(compose(event, { participants, leads, reservations, snapshot: finalDoc.exists() ? finalDoc.data() : null }));
+    }
+    return out;
+  }
+
+  // smaže celou shadow kolekci (úklid po testu). Provozní data neřeší.
+  async function shadowClear() {
+    const snap = await getDocs(collection(db, SHADOW_ROOT));
+    for (const d of snap.docs) {
+      for (const sub of ["participants", "leads", "reservations"]) {
+        const s = await getDocs(collection(db, SHADOW_ROOT, d.id, sub));
+        for (const x of s.docs) await deleteDoc(x.ref);
       }
+      const fin = await getDoc(doc(db, SHADOW_ROOT, d.id, "snapshots", "final"));
+      if (fin.exists()) await deleteDoc(fin.ref);
+      await deleteDoc(d.ref);
     }
-    for (const id of beforeMap.keys()) {
-      if (!afterMap.has(id)) batch.delete(doc(db, ...path, id));
-    }
+    return { cleared: snap.size };
   }
 
   // ── F3 parity: porovná Firestore-složený c s dodaným lokálním c ──
@@ -161,7 +228,26 @@ export function createFirebaseStore({ compose, SCHEMA_VERSION }) {
     return { ok, localCount: localCampaigns.length, remoteCount: remote.length };
   }
 
-  return { subscribeCampaigns, updateCampaign, addCampaign, subscribeUsers, seedImport, parityCheck };
+  return { subscribeCampaigns, updateCampaign, addCampaign, subscribeUsers, seedImport, parityCheck, dryRunWrite, shadowWrite, readShadowCampaigns, shadowClear };
 }
 
 const stripId = ({ id, uid, ...rest }) => rest;
+
+// ── Sdílené jádro diffu (create/update/delete podle stabilního id). ──
+//    Čistá funkce bez Firestore — používá ji ostrý diffById i F4a dry-run.
+//    Vrací [{ op:"set"|"delete", path:[...], id, data? }].
+function computeDiffOps(path, beforeArr = [], afterArr = []) {
+  const beforeMap = new Map((beforeArr || []).map((x) => [x.id, x]));
+  const afterMap = new Map((afterArr || []).map((x) => [x.id, x]));
+  const ops = [];
+  for (const [id, item] of afterMap) {
+    const prev = beforeMap.get(id);
+    if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+      ops.push({ op: "set", path: [...path, id], id, data: stripId(item) });
+    }
+  }
+  for (const id of beforeMap.keys()) {
+    if (!afterMap.has(id)) ops.push({ op: "delete", path: [...path, id], id });
+  }
+  return ops;
+}

@@ -1021,7 +1021,7 @@ const CORP_FONT_CSS = `
      updateCampaign(id,fn)→ transakce/updateDoc nad events/{id}
      addCampaign(c)       → setDoc(doc(db,"events",c.id), c)
    ══════════════════════════════════════════════════════════════ */
-const DATA_BACKEND = "local";   // "local" | "firebase" — rollback páka (F0). Firebase větev viz firebaseStore modul.
+const DATA_BACKEND = "firebase";   // "local" | "firebase" — rollback páka (F0). Firebase větev viz firebaseStore modul.
 
 // ── F1: Users z Firestore. NEZÁVISLÝ flag na DATA_BACKEND (kampaně + WRITE path zůstávají lokální). ──
 const USERS_BACKEND = "firebase";                        // "local" | "firebase"
@@ -1057,13 +1057,25 @@ function useUsers() {
 function useCampaignStore() {
   // LOKÁLNÍ backend (DATA_BACKEND="local"): chová se přesně jako dřív, žádná změna.
   const [campaigns, setCampaigns] = useState(seed);
+
+  // FIREBASE backend (DATA_BACKEND="firebase"): realtime čtení z Firestore → compose() → stav.
+  // F4c Commit 1: větev zapojena, ale ZABRANÁ flagem. Dokud je DATA_BACKEND="local",
+  // tento efekt hned skončí a chování je bajt po bajtu dnešní (seed, in-memory).
+  useEffect(() => {
+    if (DATA_BACKEND !== "firebase") return;               // local → beze změny, žádné čtení Firestore
+    return fb.subscribeCampaigns((remote) => setCampaigns(remote));
+  }, []);
+
   const loadCampaigns      = () => campaigns;
   const subscribeCampaigns = (cb) => { cb(campaigns); return () => {}; };
-  const updateCampaign     = (id, fn) => setCampaigns((cs) => cs.map((c) => c.id === id ? fn(c) : c));
-  const addCampaign        = (c) => setCampaigns((cs) => [...cs, { schemaVersion: SCHEMA_VERSION, ...c }]);
-  // FIREBASE backend (DATA_BACKEND="firebase"): stejné rozhraní, implementace ve firebaseStore (F1–F3).
-  //   subscribeCampaigns → onSnapshot(events+podkolekce) → compose() → cb
-  //   updateCampaign     → applyWrite(id, fn) (diff, F4)
+  const updateCampaign     = (id, fn) => {
+    if (DATA_BACKEND === "firebase") { fb.updateCampaign(id, fn).catch(console.error); return; }  // diff → Firestore; stav obnoví onSnapshot
+    setCampaigns((cs) => cs.map((c) => c.id === id ? fn(c) : c));
+  };
+  const addCampaign        = (c) => {
+    if (DATA_BACKEND === "firebase") { fb.addCampaign({ schemaVersion: SCHEMA_VERSION, ...c }).catch(console.error); return; }
+    setCampaigns((cs) => [...cs, { schemaVersion: SCHEMA_VERSION, ...c }]);
+  };
   return { campaigns, loadCampaigns, subscribeCampaigns, updateCampaign, addCampaign, compose };
 }
 
@@ -1146,6 +1158,74 @@ export default function App() {
         resolve(r);
       });
     });
+  }, [campaigns]);
+
+  // ── F4a: DRY-RUN diff enginu. Spusť v konzoli:  window.f4DryRun()  ──
+  //    Ověří, že fb.dryRunWrite(before→after) plánuje očekávané operace.
+  //    NIC nezapisuje do Firestore. DATA_BACKEND zůstává "local".
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.f4DryRun = () => {
+      const clone = (o) => JSON.parse(JSON.stringify(o));
+      const base = {
+        id: "F4TEST", name: "Dry-run test", schemaVersion: SCHEMA_VERSION,
+        parts: [{ id: "p1", v: 1 }, { id: "p2", v: 2 }],
+        leads: [{ id: "l1", v: 1 }],
+        reservations: [{ id: "r1", partId: "p1" }, { id: "r2", partId: "p2" }],
+      };
+      const cnt = (r, coll, op) => (r.summary.byColl[coll]?.[op]) || 0;
+      const cases = [
+        { name: "beze změny", fn: (c) => clone(c),
+          exp: { events: [1, 0], participants: [0, 0], leads: [0, 0], reservations: [0, 0], snapshots: [0, 0] } },
+        { name: "přidat účastníka", fn: (c) => { c = clone(c); c.parts.push({ id: "p3", v: 3 }); return c; },
+          exp: { participants: [1, 0] } },
+        { name: "upravit účastníka", fn: (c) => { c = clone(c); c.parts[0].v = 99; return c; },
+          exp: { participants: [1, 0] } },
+        { name: "smazat účastníka + jeho jízdu (orphan cleanup)",
+          fn: (c) => { c = clone(c); c.parts = c.parts.filter((p) => p.id !== "p1"); c.reservations = c.reservations.filter((r) => r.partId !== "p1"); return c; },
+          exp: { participants: [0, 1], reservations: [0, 1] } },
+        { name: "přidat lead", fn: (c) => { c = clone(c); c.leads.push({ id: "l2", v: 2 }); return c; },
+          exp: { leads: [1, 0] } },
+        { name: "uzavření akce → snapshot 1×", fn: (c) => { c = clone(c); c.finalReport = { builtWith: "test" }; return c; },
+          exp: { snapshots: [1, 0] } },
+        { name: "snapshot se NEpřepisuje", before: (c) => { c = clone(c); c.finalReport = { builtWith: "old" }; return c; },
+          fn: (c) => { c = clone(c); c.finalReport = { builtWith: "new" }; return c; },
+          exp: { snapshots: [0, 0] } },
+      ];
+      const results = cases.map((t) => {
+        const before = t.before ? t.before(base) : clone(base);
+        const after = t.fn(before);
+        const r = fb.dryRunWrite(after, before);
+        const bad = Object.entries(t.exp).filter(([coll, [s, d]]) => cnt(r, coll, "set") !== s || cnt(r, coll, "delete") !== d);
+        return { name: t.name, ok: bad.length === 0, exp: t.exp, got: r.summary.byColl, bad };
+      });
+      const ok = results.every((x) => x.ok);
+      console.log("F4a dry-run →", ok ? "OK ✅" : "ROZDÍL ❌");
+      results.forEach((x) => console.log(x.ok ? "  ✅" : "  ❌", x.name, x.ok ? "" : x));
+      window.__f4 = { ok, results };
+      return { ok, passed: results.filter((x) => x.ok).length, total: results.length };
+    };
+  }, []);
+
+  // ── F4b: SHADOW WRITE parita. Spusť v konzoli:  await window.f4Shadow()  ──
+  //    Zapíše LOKÁLNÍ kampaně do izolované kolekce events_shadow stejným
+  //    writeCampaign enginem jako ostrý provoz, přečte je zpět, porovná paritu
+  //    proti lokálu a shadow kolekci zase smaže. Provozní "events" se NEDOTKNE.
+  //    Volitelně { keep:true } → shadow data ponechá k ruční inspekci.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.f4Shadow = async ({ keep = false } = {}) => {
+      console.log("F4b shadow: zapisuji", campaigns.length, "kampaní do events_shadow…");
+      for (const c of campaigns) await fb.shadowWrite(c, null);   // create (before=null)
+      const remote = await fb.readShadowCampaigns();
+      const r = f3Compare(campaigns, remote);
+      console.log("F4b shadow parita →", r.ok ? "OK ✅" : "ROZDÍL ❌", r);
+      if (!r.ok) console.log("Rozdílové akce:", r.diffs);
+      let cleared = null;
+      if (!keep) { cleared = await fb.shadowClear(); console.log("F4b: shadow kolekce uklizena", cleared); }
+      window.__f4b = { local: campaigns, remote, result: r, kept: keep };
+      return { ok: r.ok, localCount: r.localCount, remoteCount: r.remoteCount, cleared };
+    };
   }, [campaigns]);
   const [showUsers, setShowUsers] = useState(false);
   const [showChangelog, setShowChangelog] = useState(false);
@@ -4713,12 +4793,12 @@ const eventMetrics = (c) => {
   const attendeesNoEmail = parts.filter((p) => ["potvrzen", "prihlasen"].includes(p.state) && !((p.data?.[emId] || "").trim())).length;
   const ic = {};
   leads.forEach((l) => { const lvl = INTEREST_LEVELS.find((x) => x.id === l.interest); const k = lvl ? lvl.label : (l.interest || l.model || "—"); ic[k] = (ic[k] || 0) + 1; });
-  const topInterests = Object.entries(ic).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topInterests = Object.entries(ic).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([label, count]) => ({ label, count }));  // Firestore-safe: pole objektů místo array-of-arrays
   // počty podle konkrétního modelu vozu (pro obchodní poznatky a doporučení kapacity)
   const mc = {};
   leads.forEach((l) => { const m = (l.model || "").trim(); if (m) mc[m] = (mc[m] || 0) + 1; });
-  const modelCounts = Object.entries(mc).sort((a, b) => b[1] - a[1]);
-  const topModel = modelCounts[0] || null;
+  const modelCounts = Object.entries(mc).sort((a, b) => b[1] - a[1]).map(([model, count]) => ({ model, count }));  // Firestore-safe: pole objektů místo array-of-arrays
+  const topModel = modelCounts[0] ? [modelCounts[0].model, modelCounts[0].count] : null;  // zůstává [model, count] kvůli čtenářům topModel[0]/[1]
   // financování: nejčastější typ
   const fc = {};
   leads.forEach((l) => { if (l.financing) { const lab = (FINANCING.find((x) => x.id === l.financing) || {}).label || l.financing; fc[lab] = (fc[lab] || 0) + 1; } });
@@ -4943,7 +5023,7 @@ function ReportInsights({ c }) {
         <div style={{ marginBottom: 18 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.cream, marginBottom: 7 }}>Nejčastější zájmy</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-            {m.topInterests.map(([k, n]) => (
+            {m.topInterests.map(({ label: k, count: n }) => (
               <span key={k} style={{ fontSize: 12, padding: "4px 10px", borderRadius: 7, background: `${T.brass}14`, border: `1px solid ${T.brass}44`, color: T.cream }}>{k} <b style={{ color: T.brass }}>{n}×</b></span>
             ))}
           </div>
