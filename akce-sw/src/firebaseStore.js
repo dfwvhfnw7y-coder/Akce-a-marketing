@@ -69,9 +69,14 @@ export function createFirebaseStore({ compose, SCHEMA_VERSION }) {
   }
 
   // ── F1: USERS ──
+  // Varianta A: Firestore users se vrací ve stejném tvaru jako seed — doc-ID → `id`
+  // (doménový identifikátor uživatele: assignedTo / userId / approverId).
+  // Shodné s subscribeCampaigns (`id: x.id`). Storage klíč (doc-ID) zůstává oddělený.
+  // Pozn.: samotné sjednocení identity NEřeší perzistenci toggle active — write path
+  // pro users zatím neexistuje (řeší se až v F10 po security rules).
   function subscribeUsers(cb) {
     return onSnapshot(collection(db, "users"), (snap) =>
-      cb(snap.docs.map((x) => ({ uid: x.id, ...x.data() })))
+      cb(snap.docs.map((x) => ({ id: x.id, ...x.data() })))
     );
   }
 
