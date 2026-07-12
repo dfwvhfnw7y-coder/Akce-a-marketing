@@ -1127,28 +1127,13 @@ export default function App() {
   const fbUsers = useUsers();                             // F1: uživatelé z Firestore (fallback = seed)
   useEffect(() => { if (fbUsers && fbUsers.length) setUsers(fbUsers); }, [fbUsers]);
 
-  // ── DOČASNĚ pro F2 seed kampaní — po nahrání do Firestore SMAZAT. ──
-  //    Spusť JEDNOU v konzoli:  await window.f2SeedCampaigns()
-  //    Users už ve Firestore jsou → posílá se prázdné pole users.
+  // ── Diagnostický helper: ruční přístup ke store vrstvě (užitečné pro F4). ──
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.fb = fb;
-    window.f2SeedCampaigns = async () => {
-      const res = await fb.seedImport(campaigns, []);
-      console.log("F2: nahráno kampaní =", campaigns.length, campaigns.map(c => c.id));
-      return res;
-    };
-  }, [campaigns]);
-
-  // ── F3: SHADOW subscribe — čte kampaně z Firestore paralelně, jen loguje (DATA_BACKEND zůstává local). ──
-  useEffect(() => {
-    return fb.subscribeCampaigns((remote) => {
-      console.log("F3 shadow: složeno z Firestore =", remote.length, "akcí →", remote.map(c => c.id));
-      window.__f3remote = remote;               // pro ruční inspekci tvaru c
-    });
   }, []);
 
-  // ── F3: on-demand parity check. Spusť v konzoli:  await window.f3Parity() ──
+  // ── F3: on-demand parity check (regresní nástroj). Spusť v konzoli:  await window.f3Parity() ──
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.f3Parity = () => new Promise((resolve) => {
