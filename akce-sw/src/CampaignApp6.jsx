@@ -2717,6 +2717,9 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                   {others.length > 0 && <span style={{ fontSize: 10, color: T.brass, background: `${T.brass}18`, border: `1px solid ${T.brass}44`, padding: "1px 5px", borderRadius: 9 }}>+{others.length}</span>}
                   {crm.category && <span style={{ fontSize: 11, color: T.info, background: `${T.info}12`, border: `1px solid ${T.info}33`, padding: "2px 7px", borderRadius: 8, whiteSpace: "nowrap" }}>{crm.category}</span>}
                   {isGolf && p.hcp && <span style={{ fontSize: 11, color: T.brass }}>HCP {p.hcp}</span>}
+                  {(c.equipment || []).filter((eq) => (p.eqChoice || {})[eq.id]).map((eq) => (
+                    <span key={eq.id} style={{ fontSize: 10.5, color: T.info, background: `${T.info}12`, border: `1px solid ${T.info}33`, padding: "1px 6px", borderRadius: 8, whiteSpace: "nowrap" }}>{EQ_PRESETS.find((pr) => pr.id === eq.presetId)?.icon || "📦"} {eq.label}</span>
+                  ))}
                   {p.addedBy?.name && <span style={{ fontSize: 11, color: T.textDim }}>↳ {p.addedBy.name}{p.addedBy.dept ? ` | ${p.addedBy.dept}` : ""}</span>}
                   {partDivisions(p).map(id => (
                     <span key={id} style={{ fontSize: 10, fontWeight: 600, color: T.brass, background: `${T.brass}18`, border: `1px solid ${T.brass}44`, borderRadius: 5, padding: "1px 6px" }}>{id}</span>
@@ -2731,7 +2734,7 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                       {sellers.map(s => <option key={s.id} value={s.id}>{s.name}{s.depts?.length ? ` (${s.depts.join("/")})` : ""}</option>)}
                     </select>
                   )}
-                  <select value={p.state} onChange={(e) => setState(p.id, e.target.value)} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, width: 148 }} disabled={!canEditPart(p)}>
+                  <select value={p.state} onChange={(e) => setState(p.id, e.target.value)} style={{ ...inputStyle, padding: "5px 8px", fontSize: 12, width: 148 }} disabled={readOnly || (role !== ROLES.SALES && !canEditPart(p))}>
                     {STATE_ORDER.filter((s) => role !== ROLES.SALES || s === p.state || SALES_SETTABLE_STATES.includes(s)).map((s) => <option key={s} value={s}>{STATES[s].label}</option>)}
                   </select>
                   {/* vždy rezervované místo pro ✉ tlačítko */}
@@ -2756,6 +2759,15 @@ function ParticipantList({ c, role, crossMap, full, isGolf, canEdit, nameId, ema
                     <div><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>E-MAIL</div><div style={{ fontSize: 12.5, color: T.cream }}>{p.data[emailId] || "—"}</div></div>
                     <div><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>TELEFON</div><div style={{ fontSize: 12.5, color: T.cream }}>{p.data[phoneId] || "—"}</div></div>
                     {isGolf && <div><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>HCP</div><div style={{ fontSize: 12.5, color: p.hcp ? T.brass : T.textDim, fontWeight: 600 }}>{p.hcp || "—"}</div></div>}
+                    {(c.equipment || []).some((eq) => (p.eqChoice || {})[eq.id]) && (
+                      <div style={{ minWidth: 120 }}><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>VYBAVENÍ</div>
+                        <div style={{ fontSize: 12.5, color: T.cream, display: "flex", gap: 5, flexWrap: "wrap" }}>
+                          {(c.equipment || []).filter((eq) => (p.eqChoice || {})[eq.id]).map((eq) => (
+                            <span key={eq.id}>{EQ_PRESETS.find((pr) => pr.id === eq.presetId)?.icon || "📦"} {eq.label}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div><div style={{ fontSize: 10, color: T.textDim, marginBottom: 2 }}>SKUPINA</div>
                       {canEditThis
                         ? <select value={p.group || ""} onChange={e => setGroup(p.id, e.target.value || null)} style={{ ...inputStyle, padding: "3px 7px", fontSize: 12 }}><option value="">—</option>{c.groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}</select>
